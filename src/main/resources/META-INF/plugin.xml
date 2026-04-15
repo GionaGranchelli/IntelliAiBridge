@@ -1,0 +1,33 @@
+<idea-plugin>
+    <id>com.intelliaibridge.intellij</id>
+    <name>IntelliAiBridge</name>
+    <vendor email="support@intelliaibridge.com" url="https://intelliaibridge.com">IntelliAiBridge</vendor>
+
+    <description><![CDATA[
+    Expose IntelliJ language models as an OpenAI-compatible REST API for agents and tools.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends optional="true" config-file="copilot-llm.xml">com.intellij.ml.llm</depends>
+    <depends>com.github.copilot</depends>
+
+    <extensions defaultExtensionNs="org.jetbrains.kotlin">
+        <supportsKotlinPluginMode supportsK2="true" />
+    </extensions>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationService serviceImplementation="com.intelliaibridge.intellij.server.IntelliAiBridgeGateway"/>
+        <applicationService serviceImplementation="com.intelliaibridge.intellij.settings.IntelliAiBridgeSettings"/>
+        <applicationConfigurable instance="com.intelliaibridge.intellij.settings.IntelliAiBridgeSettingsConfigurable"
+                                 id="com.intelliaibridge.intellij.settings.IntelliAiBridgeSettingsConfigurable"
+                                 displayName="IntelliAiBridge"/>
+        <postStartupActivity implementation="com.intelliaibridge.intellij.lifecycle.IntelliAiBridgeProjectActivity"/>
+        <statusBarWidgetFactory implementation="com.intelliaibridge.intellij.ui.IntelliAiBridgeStatusBarWidgetFactory" id="IntelliAiBridgeStatusBarWidget"/>
+        <toolWindow id="IntelliAiBridge" anchor="right" factoryClass="com.intelliaibridge.intellij.ui.IntelliAiBridgeToolWindowFactory" icon="/icons/intelliaibridge.svg"/>
+    </extensions>
+
+    <actions>
+        <action id="IntelliAiBridge.StartServer" class="com.intelliaibridge.intellij.actions.StartServerAction" text="Start IntelliAiBridge Server"/>
+        <action id="IntelliAiBridge.StopServer" class="com.intelliaibridge.intellij.actions.StopServerAction" text="Stop IntelliAiBridge Server"/>
+    </actions>
+</idea-plugin>
