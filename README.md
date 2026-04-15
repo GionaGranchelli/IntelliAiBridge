@@ -1,56 +1,54 @@
-# IntelliAiBridge IntelliJ Plugin
+# IntelliAiBridge: The IDE-to-Agent Copilot Proxy
 
-IntelliAiBridge exposes GitHub Copilot inside IntelliJ as a local OpenAI-compatible HTTP API.
+IntelliAiBridge exposes your existing IntelliJ GitHub Copilot entitlement as a local, **OpenAI-compatible HTTP API**.
 
-It is designed for environments where direct CLI usage is restricted, but IDE-based Copilot access is allowed.
+## 💡 Why does this exist?
 
-## What you get
+Many modern AI coding tools (like OpenDevin, Aider, Cline, or custom autonomous agents) rely on direct API access or CLI tools. However, in many enterprise environments:
+1. **GitHub Copilot CLI or direct API access is restricted** by corporate policy.
+2. **IDE-based Copilot access is approved**, licensed, and authenticated.
 
-- Local API server (`http://127.0.0.1:3040` by default)
-- OpenAI-compatible endpoints:
-  - `GET /health`
-  - `GET /v1/models`
-  - `GET /v1/models/{id}`
-  - `POST /v1/chat/completions`
-  - `POST /v1/completions` (legacy compatibility)
-- API key auth (`Authorization: Bearer <key>`)
-- Streaming and non-streaming chat responses
-- Tool call compatibility (`tools` + XML tool-call extraction)
-- Model discovery from Copilot + fallback model list
-- IntelliJ settings UI + Password Safe secret storage
+**IntelliAiBridge bridges this gap.** If you want to code in a more *agentic* way using external tools, but are constrained to your company's approved IntelliJ Copilot extension, this plugin acts as a secure, local proxy. Your external agents talk to this plugin via the standard OpenAI protocol, and this plugin transparently routes those requests through the authenticated Copilot session already running inside your IDE.
 
-## Requirements
+## 🚀 What you get
 
-- IntelliJ Platform IDE compatible with this plugin build
-- GitHub Copilot plugin installed and authenticated
-- Active Copilot entitlement for the user
-- Java/Gradle environment for local development
+- **Local API server** (`http://127.0.0.1:3040` by default).
+- **Agent-Ready Compatibility:** Supports the OpenAI schema that most agents expect:
+  - `POST /v1/chat/completions` (with streaming support).
+  - Tool call compatibility (`tools` + XML tool-call extraction).
+  - `GET /v1/models` (Model discovery from Copilot).
+- **Secure Authentication:** API key auth (`Authorization: Bearer <key>`) stored safely in IntelliJ Password Safe.
+- **Enterprise Friendly:** No external credential leakage. Traffic flows through your already-approved IDE network path.
 
-## Quick start
+## 📦 Requirements
 
-1. Build/run plugin sandbox:
+- IntelliJ Platform IDE compatible with this plugin build.
+- GitHub Copilot plugin installed and authenticated.
+- Active Copilot entitlement for the user.
+- Java/Gradle environment for local development.
+
+## ⚡ Quick start
+
+1. **Build/run the plugin sandbox:**
 
 ```bash
 ./gradlew runIde
 ```
 
-2. In IntelliJ, open `Settings > Tools > IntelliAiBridge`.
+2. **Configure the Bridge (Mandatory):**
+- In IntelliJ, open `Settings > Tools > IntelliAiBridge`.
+- Set your `Host` and `Port`.
+- **Set an API Key:** You **must** create a custom API key here. This key acts as your local password; your CLI agents will use this key in their `Authorization` headers to talk to the bridge.
 
-3. Configure:
-- `Host` and `Port`
-- `API Key` (stored in IntelliJ Password Safe)
-- Optional defaults (model, system prompt, limits)
+3. **Start the server:**
+- Click `Start` from the IntelliAiBridge tool window, or toggle it from the status bar.
 
-4. Start the server:
-- From IntelliAiBridge tool window (`Start`), or
-- Status bar widget toggle, or
-- Auto-start on project open
-
-5. Call the API:
+4. **Connect your Agent:**
+Once the server is running, the OpenAI-compatible API is exposed locally. You can now connect **any CLI agent or tool** that supports the OpenAI API (such as `aider`, `cline`, or `interpreter`). Point them to your local address (e.g., `http://127.0.0.1:3040/v1`) and use the API key you just configured.
 
 ```bash
 curl http://127.0.0.1:3040/v1/chat/completions \
-  -H "Authorization: Bearer <your-intelliaibridge-api-key>" \
+  -H "Authorization: Bearer <your-custom-local-key>" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "default",
@@ -59,89 +57,29 @@ curl http://127.0.0.1:3040/v1/chat/completions \
   }'
 ```
 
-## Authentication and API keys
+## ⚙️ Configuration & Architecture
 
-IntelliAiBridge accepts one effective API key, resolved in this order:
+- **Auth:** The server requires a local API key. It checks the `INTELLIAIBRIDGE_API_KEY` environment variable first, then the IntelliJ Password Safe.
+- **Models:** You can request specific Copilot models. If left blank, it defaults to your Settings preference or the Copilot default.
+- **Chat Mode:** Defaults to **Agent** mode when available, falling back to **Ask** mode.
+- **Tool Calling:** The bridge translates standard OpenAI `tools` arrays into Copilot prompts and extracts Copilot's `<invoke>` XML responses back into OpenAI `tool_calls`.
 
-1. `INTELLIAIBRIDGE_API_KEY` environment variable
-2. IntelliAiBridge API key stored in IntelliJ Password Safe
+For deeper technical details, see the [API reference](docs/API.md), [Architecture](docs/ARCHITECTURE.md), and [Operations](docs/OPERATIONS.md).
 
-If both exist, environment variable wins.
+## 🔒 Security Guidance
 
-## Model behavior
+- **Bind to `127.0.0.1` (localhost)** unless you explicitly need LAN access. Do not expose this to the public internet.
+- **Use a strong local API key.** Even on localhost, this prevents unauthorized scripts on your machine from using your Copilot quota.
+- **Corporate Compliance:** Treat this service as a privileged bridge to your Copilot identity. Ensure your use of agentic workflows complies with your organization's AI and data-handling policies.
 
-- If request `model` is provided, IntelliAiBridge attempts to use it.
-- If request `model` is absent/blank, IntelliAiBridge uses `Default Model` from settings.
-- If both are absent, it uses Copilot default behavior.
-- `/v1/models` returns discovered Copilot models, with fallback entries when discovery is unavailable.
-
-## Chat/Agent behavior
-
-Session mode defaults to **Agent** when available, and falls back to **Ask** mode when Agent mode is unavailable.
-
-## Endpoint notes
-
-### `POST /v1/chat/completions`
-
-Supports:
-- `messages`
-- `model`
-- `stream`
-- `tools`
-- `tool_choice`
-- `max_tokens`
-- `temperature`
-
-Unknown JSON fields are ignored to improve client compatibility.
-
-Streaming follows SSE format (`data: ...`) and ends with `data: [DONE]`.
-A final chunk with empty `delta` and `finish_reason` is expected behavior.
-
-### `POST /v1/completions`
-
-Legacy shim that converts prompt-style payloads into chat-completions flow.
-
-### Tool call compatibility
-
-IntelliAiBridge accepts OpenAI-style `tools` payloads and also parses Copilot responses containing:
-
-- `<function_calls>`
-- `<invoke name="...">`
-- `<parameter name="...">...</parameter>`
-
-Parsed calls are returned as OpenAI-style `tool_calls`.
-
-## Configuration reference
-
-See [API reference](docs/API.md), [architecture](docs/ARCHITECTURE.md), and [operations/troubleshooting](docs/OPERATIONS.md).
-
-## Development
+## 🛠️ Development
 
 Run tests:
-
 ```bash
 ./gradlew test --no-daemon
 ```
 
-Build plugin:
-
+Build the plugin:
 ```bash
 ./gradlew buildPlugin --no-daemon
 ```
-
-## Security guidance
-
-- Bind host to loopback unless you explicitly need LAN access.
-- Use a strong API key.
-- Restrict CORS origins to trusted local clients only.
-- Treat this service as a privileged bridge to your Copilot identity.
-
-## Known limits
-
-- Behavior depends on Copilot plugin availability and session health.
-- Model discovery may vary between IDE/plugin versions.
-- Not all OpenAI features are implemented (focus is local automation compatibility).
-
-## License
-
-No project license is currently declared in this repository.

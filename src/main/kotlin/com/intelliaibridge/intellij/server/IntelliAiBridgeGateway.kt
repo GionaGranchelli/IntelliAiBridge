@@ -5,8 +5,6 @@ import com.fasterxml.jackson.module.kotlin.readValue
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectManager
 import com.intelliaibridge.intellij.copilot.CopilotBridge
 import com.intelliaibridge.intellij.settings.IntelliAiBridgeSettings
 import io.ktor.http.*
@@ -20,22 +18,22 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.util.AttributeKey
-import kotlinx.coroutines.*
-import org.w3c.dom.Element
-import java.util.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import java.util.UUID
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
-import javax.xml.XMLConstants
-import javax.xml.parsers.DocumentBuilderFactory
-import org.xml.sax.InputSource
-import java.io.StringReader
 
 /**
  * Application-level gateway that exposes IntelliJ Copilot as a local
  * OpenAI-compatible HTTP service.
  *
  * This service owns server lifecycle, request validation/authentication,
- * throttling, and response adaptation.
+ * throttling, and endpoint routing.
  */
 @Service(Service.Level.APP)
 class IntelliAiBridgeGateway : AutoCloseable {
@@ -62,6 +60,22 @@ class IntelliAiBridgeGateway : AutoCloseable {
     private val stats = object {
         val totalRequests = AtomicInteger(0)
         val startTime = System.currentTimeMillis()
+    }
+
+    private val projectResolver by lazy { GatewayProjectResolver(::log) }
+    private val xmlToolCallParser by lazy { GatewayXmlToolCallParser() }
+    private val modelCatalog by lazy {
+        GatewayModelCatalog(copilotBridge, ::currentSettings, projectResolver, ::log)
+    }
+    private val chatCompletions by lazy {
+        GatewayChatCompletions(
+            copilotBridge = copilotBridge,
+            settingsProvider = ::currentSettings,
+            projectResolver = projectResolver,
+            buildPrompt = ::buildPrompt,
+            parseXmlToolCalls = ::parseXmlToolCalls,
+            log = ::log
+        )
     }
 
     /** Returns `true` when the embedded HTTP server is running. */
@@ -159,147 +173,101 @@ class IntelliAiBridgeGateway : AutoCloseable {
             }
 
             val createdServer = embeddedServer(Netty, port = settings.port, host = settings.host) {
-            install(ContentNegotiation) {
-                jackson()
-            }
-            install(CORS) {
-                val allowed = settings.corsAllowedOrigins.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                allowed.forEach { origin ->
-                    val host = origin.removePrefix("http://").removePrefix("https://")
-                    if (!host.contains(":")) {
-                        allowHost(host, listOf("http", "https"))
-                    } else {
-                        allowHost(host.split(":")[0], listOf("http", "https"))
+                install(ContentNegotiation) {
+                    jackson()
+                }
+                install(CORS) {
+                    val allowed = settings.corsAllowedOrigins.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                    allowed.forEach { origin ->
+                        val host = origin.removePrefix("http://").removePrefix("https://")
+                        if (!host.contains(":")) {
+                            allowHost(host, listOf("http", "https"))
+                        } else {
+                            allowHost(host.split(":")[0], listOf("http", "https"))
+                        }
                     }
-                }
-                allowHeader(HttpHeaders.Authorization)
-                allowHeader(HttpHeaders.ContentType)
-                allowMethod(HttpMethod.Options)
-                allowMethod(HttpMethod.Get)
-                allowMethod(HttpMethod.Post)
-            }
-
-            intercept(ApplicationCallPipeline.Plugins) {
-                val requestId = UUID.randomUUID().toString().take(8)
-                call.attributes.put(requestIdKey, requestId)
-                val contentType = call.request.header(HttpHeaders.ContentType) ?: "<none>"
-                val contentLength = call.request.header(HttpHeaders.ContentLength) ?: "<none>"
-                val userAgent = call.request.header(HttpHeaders.UserAgent) ?: "<none>"
-                log("[$requestId] Incoming request: ${call.request.httpMethod.value} ${call.request.uri} from ${call.request.local.remoteHost} ct=$contentType len=$contentLength ua=$userAgent")
-
-                if (call.request.uri == "/health" || call.request.httpMethod == HttpMethod.Options) return@intercept
-
-                val authHeader = call.request.header(HttpHeaders.Authorization)
-                if (authHeader != "Bearer $activeApiKey") {
-                    log("[${requestId(call)}] Unauthorized request from ${call.request.local.remoteHost}")
-                    call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Invalid API Key"))
-                    finish()
-                    return@intercept
+                    allowHeader(HttpHeaders.Authorization)
+                    allowHeader(HttpHeaders.ContentType)
+                    allowMethod(HttpMethod.Options)
+                    allowMethod(HttpMethod.Get)
+                    allowMethod(HttpMethod.Post)
                 }
 
-                if (!checkRateLimit(settings.rateLimitPerMinute)) {
-                    log("[${requestId(call)}] Rate limit exceeded")
-                    call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Rate limit exceeded"))
-                    finish()
-                    return@intercept
-                }
+                intercept(ApplicationCallPipeline.Plugins) {
+                    val requestId = UUID.randomUUID().toString().take(8)
+                    call.attributes.put(requestIdKey, requestId)
+                    val contentType = call.request.header(HttpHeaders.ContentType) ?: "<none>"
+                    val contentLength = call.request.header(HttpHeaders.ContentLength) ?: "<none>"
+                    val userAgent = call.request.header(HttpHeaders.UserAgent) ?: "<none>"
+                    log("[$requestId] Incoming request: ${call.request.httpMethod.value} ${call.request.uri} from ${call.request.local.remoteHost} ct=$contentType len=$contentLength ua=$userAgent")
 
-                if (isCompletionEndpoint(call)) {
-                    if (!tryAcquireRequestSlot(settings.maxConcurrentRequests)) {
-                        log("[${requestId(call)}] Server at capacity")
-                        call.respond(HttpStatusCode.ServiceUnavailable, mapOf("error" to "Server at capacity"))
+                    if (call.request.uri == "/health" || call.request.httpMethod == HttpMethod.Options) return@intercept
+
+                    val authHeader = call.request.header(HttpHeaders.Authorization)
+                    if (authHeader != "Bearer $activeApiKey") {
+                        log("[${requestId(call)}] Unauthorized request from ${call.request.local.remoteHost}")
+                        call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Invalid API Key"))
                         finish()
                         return@intercept
                     }
-                    call.attributes.put(requestSlotKey, true)
-                }
-            }
 
-            routing {
-                get("/health") {
-                    call.respond(mapOf("status" to "ok", "platform" to "intellij", "copilot" to "enabled"))
-                }
-                get("/v1/models") {
-                    log("[${requestId(call)}] GET /v1/models")
-                    call.respond(mapOf("object" to "list", "data" to listModels()))
-                }
-                get("/v1/models/{id}") {
-                    val id = call.parameters["id"]
-                    log("[${requestId(call)}] GET /v1/models/$id")
-                    val model = listModels().find { it.id == id }
-                    if (model != null) {
-                        call.respond(model)
-                    } else {
-                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "Model not found"))
+                    if (!checkRateLimit(settings.rateLimitPerMinute)) {
+                        log("[${requestId(call)}] Rate limit exceeded")
+                        call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Rate limit exceeded"))
+                        finish()
+                        return@intercept
+                    }
+
+                    if (isCompletionEndpoint(call)) {
+                        if (!tryAcquireRequestSlot(settings.maxConcurrentRequests)) {
+                            log("[${requestId(call)}] Server at capacity")
+                            call.respond(HttpStatusCode.ServiceUnavailable, mapOf("error" to "Server at capacity"))
+                            finish()
+                            return@intercept
+                        }
+                        call.attributes.put(requestSlotKey, true)
                     }
                 }
-                post("/v1/chat/completions") {
-                    try {
-                        val request = receiveJsonBody<ChatCompletionRequest>(call, "/v1/chat/completions") ?: return@post
-                        stats.totalRequests.incrementAndGet()
-                        log("[${requestId(call)}] POST /v1/chat/completions - model: ${request.model ?: "default"}")
 
+                routing {
+                    get("/health") {
+                        call.respond(mapOf("status" to "ok", "platform" to "intellij", "copilot" to "enabled"))
+                    }
+                    get("/v1/models") {
+                        log("[${requestId(call)}] GET /v1/models")
+                        call.respond(mapOf("object" to "list", "data" to listModels()))
+                    }
+                    get("/v1/models/{id}") {
+                        val id = call.parameters["id"]
+                        log("[${requestId(call)}] GET /v1/models/$id")
+                        val model = listModels().find { it.id == id }
+                        if (model != null) {
+                            call.respond(model)
+                        } else {
+                            call.respond(HttpStatusCode.NotFound, mapOf("error" to "Model not found"))
+                        }
+                    }
+                    post("/v1/chat/completions") {
                         try {
-                            withTimeout(settings.requestTimeoutSeconds * 1000L) {
-                                val testHandler = chatCompletionHandlerOverride
-                                if (testHandler != null) testHandler(call, request) else handleChatCompletion(call, request)
-                            }
-                        } catch (e: TimeoutCancellationException) {
-                            log("[${requestId(call)}] Request timeout")
-                            if (!call.response.isCommitted) {
-                                call.respond(HttpStatusCode.GatewayTimeout, mapOf("error" to "Request timeout"))
-                            }
-                        } catch (e: Exception) {
-                            log("[${requestId(call)}] Error handling request: ${e.message}")
-                            if (!call.response.isCommitted) {
-                                call.respond(HttpStatusCode.InternalServerError, mapOf("error" to (e.message ?: "Internal error")))
-                            }
+                            val request = receiveJsonBody<ChatCompletionRequest>(call, "/v1/chat/completions") ?: return@post
+                            stats.totalRequests.incrementAndGet()
+                            log("[${requestId(call)}] POST /v1/chat/completions - model: ${request.model ?: "default"}")
+                            executeChatCompletion(call, request, settings)
+                        } finally {
+                            releaseRequestSlot(call)
                         }
-                    } finally {
-                        releaseRequestSlot(call)
                     }
-                }
-                post("/v1/completions") {
-                    try {
-                        val request = receiveJsonBody<CompletionsRequest>(call, "/v1/completions") ?: return@post
-                        stats.totalRequests.incrementAndGet()
-                        log("[${requestId(call)}] POST /v1/completions (legacy) - model: ${request.model ?: "default"}")
-
-                        val prompt = when (val p = request.prompt) {
-                            is String -> p
-                            is List<*> -> p.filterIsInstance<String>().joinToString("\n")
-                            else -> ""
-                        }
-
-                        val chatRequest = ChatCompletionRequest(
-                            model = request.model,
-                            messages = listOf(ChatMessage("user", prompt)),
-                            stream = request.stream,
-                            max_tokens = request.max_tokens,
-                            temperature = request.temperature
-                        )
-
+                    post("/v1/completions") {
                         try {
-                            withTimeout(settings.requestTimeoutSeconds * 1000L) {
-                                val testHandler = chatCompletionHandlerOverride
-                                if (testHandler != null) testHandler(call, chatRequest) else handleChatCompletion(call, chatRequest)
-                            }
-                        } catch (e: TimeoutCancellationException) {
-                            log("[${requestId(call)}] Request timeout")
-                            if (!call.response.isCommitted) {
-                                call.respond(HttpStatusCode.GatewayTimeout, mapOf("error" to "Request timeout"))
-                            }
-                        } catch (e: Exception) {
-                            log("[${requestId(call)}] Error handling request: ${e.message}")
-                            if (!call.response.isCommitted) {
-                                call.respond(HttpStatusCode.InternalServerError, mapOf("error" to (e.message ?: "Internal error")))
-                            }
+                            val request = receiveJsonBody<CompletionsRequest>(call, "/v1/completions") ?: return@post
+                            stats.totalRequests.incrementAndGet()
+                            log("[${requestId(call)}] POST /v1/completions (legacy) - model: ${request.model ?: "default"}")
+                            executeChatCompletion(call, request.toChatCompletionRequest(), settings)
+                        } finally {
+                            releaseRequestSlot(call)
                         }
-                    } finally {
-                        releaseRequestSlot(call)
                     }
                 }
-            }
             }
 
             createdServer.start(wait = false)
@@ -314,6 +282,45 @@ class IntelliAiBridgeGateway : AutoCloseable {
                 starting = false
             }
         }
+    }
+
+    private suspend fun executeChatCompletion(
+        call: ApplicationCall,
+        request: ChatCompletionRequest,
+        settings: IntelliAiBridgeSettings
+    ) {
+        try {
+            withTimeout(settings.requestTimeoutSeconds * 1000L) {
+                val testHandler = chatCompletionHandlerOverride
+                if (testHandler != null) testHandler(call, request) else handleChatCompletion(call, request)
+            }
+        } catch (e: TimeoutCancellationException) {
+            log("[${requestId(call)}] Request timeout")
+            if (!call.response.isCommitted) {
+                call.respond(HttpStatusCode.GatewayTimeout, mapOf("error" to "Request timeout"))
+            }
+        } catch (e: Exception) {
+            log("[${requestId(call)}] Error handling request: ${e.message}")
+            if (!call.response.isCommitted) {
+                call.respond(HttpStatusCode.InternalServerError, mapOf("error" to (e.message ?: "Internal error")))
+            }
+        }
+    }
+
+    private fun CompletionsRequest.toChatCompletionRequest(): ChatCompletionRequest {
+        val prompt = when (val value = prompt) {
+            is String -> value
+            is List<*> -> value.filterIsInstance<String>().joinToString("\n")
+            else -> ""
+        }
+
+        return ChatCompletionRequest(
+            model = model,
+            messages = listOf(ChatMessage("user", prompt)),
+            stream = stream,
+            max_tokens = max_tokens,
+            temperature = temperature
+        )
     }
 
     private fun checkRateLimit(limit: Int): Boolean {
@@ -392,343 +399,14 @@ class IntelliAiBridgeGateway : AutoCloseable {
         }
     }
 
-    /**
-     * Handles `/v1/chat/completions` for both streaming and non-streaming modes.
-     */
     private suspend fun handleChatCompletion(call: ApplicationCall, request: ChatCompletionRequest) {
-        val settings = currentSettings()
-        val project = resolveProject(call)
-        if (project == null) {
-            call.respond(HttpStatusCode.ServiceUnavailable, mapOf("error" to "No open project found"))
-            return
-        }
-
-        val prompt = buildPrompt(
-            messages = request.messages,
-            defaultSystemPrompt = settings.defaultSystemPrompt
-        )
-        val modelIdStr = (request.model?.takeIf { it.isNotBlank() }
-            ?: settings.defaultModel.takeIf { it.isNotBlank() })
-            ?: "default"
-
-        var sessionHandle: CopilotBridge.SessionHandle? = null
-
-        try {
-            sessionHandle = copilotBridge.prepareSession(
-                project = project,
-                requestedModel = request.model,
-                defaultModel = settings.defaultModel
-            )
-
-            log("Sending prompt via ConversationService (model: $modelIdStr, session: ${sessionHandle.sessionId})")
-
-            if (request.stream) {
-                val streamResult = CompletableDeferred<String>()
-                var fullContent = ""
-
-                copilotBridge.sendMessage(sessionHandle, prompt) { event ->
-                    log("Event received: ${event.type}")
-                    when (event) {
-                        is CopilotBridge.Event.Progress -> {
-                            if (event.reply != null) {
-                                fullContent += event.reply
-                            }
-                        }
-                        is CopilotBridge.Event.Complete -> {
-                            event.reply?.let { if (fullContent.isEmpty()) fullContent = it }
-                            if (fullContent.isEmpty()) {
-                                val finalSessionReply = copilotBridge.extractVisibleAssistantText(sessionHandle)
-                                if (!finalSessionReply.isNullOrBlank()) {
-                                    fullContent = finalSessionReply
-                                } else {
-                                    log("No visible assistant text in session message. ${copilotBridge.describeLatestResponseMessage(sessionHandle)}")
-                                }
-                            }
-                            streamResult.complete(fullContent)
-                        }
-                        is CopilotBridge.Event.Error -> {
-                            streamResult.completeExceptionally(Exception(event.message))
-                        }
-                        is CopilotBridge.Event.Other -> {
-                        }
-                    }
-                }
-
-                val completedText = streamResult.await()
-                log("Copilot Completed. Total length: ${completedText.length}")
-                val parsed = parseXmlToolCalls(completedText)
-
-                call.response.cacheControl(CacheControl.NoCache(null))
-                call.respondTextWriter(contentType = ContentType.Text.EventStream) {
-                    val requestId = "chatcmpl-${UUID.randomUUID()}"
-                    val created = System.currentTimeMillis() / 1000
-                    val mapper = com.fasterxml.jackson.module.kotlin.jacksonObjectMapper()
-
-                    fun writeChunk(chunk: Any) {
-                        write("data: ${mapper.writeValueAsString(chunk)}\n\n")
-                    }
-
-                    if (request.tools != null && request.tools.isNotEmpty()) {
-                        if (parsed.cleanedText.isNotEmpty()) {
-                            writeChunk(
-                                ChatCompletionChunkResponse(
-                                    id = requestId,
-                                    created = created,
-                                    model = modelIdStr,
-                                    choices = listOf(
-                                        ChatChunkChoice(
-                                            index = 0,
-                                            delta = ChatChunkDelta(content = parsed.cleanedText),
-                                            finish_reason = null
-                                        )
-                                    )
-                                )
-                            )
-                        }
-                        parsed.toolCalls.forEachIndexed { index, tc ->
-                            writeChunk(
-                                ChatCompletionChunkResponse(
-                                    id = requestId,
-                                    created = created,
-                                    model = modelIdStr,
-                                    choices = listOf(
-                                        ChatChunkChoice(
-                                            index = 0,
-                                            delta = ChatChunkDelta(
-                                                tool_calls = listOf(
-                                                    ChatChunkToolCall(
-                                                        index = index,
-                                                        id = tc.id,
-                                                        function = tc.function
-                                                    )
-                                                )
-                                            ),
-                                            finish_reason = null
-                                        )
-                                    )
-                                )
-                            )
-                        }
-                    } else if (completedText.isNotEmpty()) {
-                        writeChunk(
-                            ChatCompletionChunkResponse(
-                                id = requestId,
-                                created = created,
-                                model = modelIdStr,
-                                choices = listOf(
-                                    ChatChunkChoice(
-                                        index = 0,
-                                        delta = ChatChunkDelta(content = completedText),
-                                        finish_reason = null
-                                    )
-                                )
-                            )
-                        )
-                    }
-
-                    val finishReason = if (parsed.toolCalls.isNotEmpty()) "tool_calls" else "stop"
-                    writeChunk(
-                        ChatCompletionChunkResponse(
-                            id = requestId,
-                            created = created,
-                            model = modelIdStr,
-                            choices = listOf(
-                                ChatChunkChoice(
-                                    index = 0,
-                                    delta = ChatChunkDelta(),
-                                    finish_reason = finishReason
-                                )
-                            )
-                        )
-                    )
-                    write("data: [DONE]\n\n")
-                    flush()
-                }
-            } else {
-                val result = CompletableDeferred<ChatCompletionResponse>()
-                var fullContent = ""
-
-                copilotBridge.sendMessage(sessionHandle, prompt) { event ->
-                    when (event) {
-                        is CopilotBridge.Event.Progress -> {
-                            event.reply?.let { fullContent += it }
-                        }
-                        is CopilotBridge.Event.Complete -> {
-                            event.reply?.let { if (fullContent.isEmpty()) fullContent = it }
-                            if (fullContent.isEmpty()) {
-                                val finalSessionReply = copilotBridge.extractVisibleAssistantText(sessionHandle)
-                                if (!finalSessionReply.isNullOrBlank()) {
-                                    fullContent = finalSessionReply
-                                } else {
-                                    log("No visible assistant text in session message. ${copilotBridge.describeLatestResponseMessage(sessionHandle)}")
-                                }
-                            }
-                            val parsed = parseXmlToolCalls(fullContent)
-                            val responseMessage = if (parsed.toolCalls.isNotEmpty()) {
-                                ChatMessage("assistant", null, tool_calls = parsed.toolCalls)
-                            } else {
-                                ChatMessage("assistant", fullContent)
-                            }
-
-                            result.complete(
-                                ChatCompletionResponse(
-                                    id = "chatcmpl-${UUID.randomUUID()}",
-                                    created = System.currentTimeMillis() / 1000,
-                                    model = modelIdStr,
-                                    choices = listOf(
-                                        ChatChoice(
-                                            0,
-                                            responseMessage,
-                                            finish_reason = if (parsed.toolCalls.isNotEmpty()) "tool_calls" else "stop"
-                                        )
-                                    )
-                                )
-                            )
-                        }
-                        is CopilotBridge.Event.Error -> {
-                            result.completeExceptionally(Exception(event.message))
-                        }
-                        is CopilotBridge.Event.Other -> {
-                        }
-                    }
-                }
-
-                call.respond(result.await())
-            }
-        } catch (e: IllegalStateException) {
-            call.respond(HttpStatusCode.ServiceUnavailable, mapOf("error" to (e.message ?: "Copilot unavailable")))
-        } finally {
-            if (sessionHandle != null) {
-                copilotBridge.cleanupSession(sessionHandle, ::log)
-            }
-        }
+        chatCompletions.handle(call, request)
     }
 
-    /**
-     * Extracts `<function_calls>` blocks from model text and converts them to
-     * OpenAI-style tool calls while returning the remaining visible assistant text.
-     */
-    private fun parseXmlToolCalls(text: String): ParsedXmlTools {
-        val toolCalls = mutableListOf<ToolCall>()
-        val cleanedText = StringBuilder(text)
-        val matches = mutableListOf<Pair<Int, Int>>()
+    private fun parseXmlToolCalls(text: String): ParsedXmlTools = xmlToolCallParser.parse(text)
 
-        for ((start, end, block) in findFunctionCallBlocks(text)) {
-            toolCalls.addAll(parseFunctionCallBlock(block))
-            matches.add(Pair(start, end))
-        }
-
-        matches.reversed().forEach { (start, end) ->
-            cleanedText.delete(start, end)
-        }
-
-        return ParsedXmlTools(cleanedText.toString().trim(), toolCalls)
-    }
-
-    /** Result container for XML tool-call parsing. */
-    data class ParsedXmlTools(val cleanedText: String, val toolCalls: List<ToolCall>)
-
-    private fun findFunctionCallBlocks(text: String): List<Triple<Int, Int, String>> {
-        val blocks = mutableListOf<Triple<Int, Int, String>>()
-        val startTag = "<function_calls>"
-        val endTag = "</function_calls>"
-        var cursor = 0
-
-        while (true) {
-            val start = text.indexOf(startTag, cursor)
-            if (start < 0) {
-                break
-            }
-            val endTagStart = text.indexOf(endTag, start + startTag.length)
-            if (endTagStart < 0) {
-                break
-            }
-            val end = endTagStart + endTag.length
-            val inner = text.substring(start + startTag.length, endTagStart)
-            blocks.add(Triple(start, end, inner))
-            cursor = end
-        }
-
-        return blocks
-    }
-
-    private fun parseFunctionCallBlock(block: String): List<ToolCall> {
-        val xml = "<function_calls>$block</function_calls>"
-        val documentBuilderFactory = DocumentBuilderFactory.newInstance().apply {
-            isNamespaceAware = false
-            isValidating = false
-            setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
-            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            setFeature("http://xml.org/sax/features/external-general-entities", false)
-            setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-        }
-
-        return try {
-            val documentBuilder = documentBuilderFactory.newDocumentBuilder()
-            val document = documentBuilder.parse(InputSource(StringReader(xml)))
-            val root = document.documentElement
-            if (root == null || root.nodeName != "function_calls") {
-                return emptyList()
-            }
-
-            val mapper = com.fasterxml.jackson.module.kotlin.jacksonObjectMapper()
-            val parsed = mutableListOf<ToolCall>()
-            val invokeNodes = root.getElementsByTagName("invoke")
-            for (index in 0 until invokeNodes.length) {
-                val invoke = invokeNodes.item(index) as? Element ?: continue
-                val name = invoke.getAttribute("name")?.trim().orEmpty()
-                if (name.isBlank()) continue
-
-                val params = linkedMapOf<String, String>()
-                val children = invoke.childNodes
-                for (i in 0 until children.length) {
-                    val child = children.item(i) as? Element ?: continue
-                    if (child.tagName != "parameter") continue
-                    val paramName = child.getAttribute("name")?.trim().orEmpty()
-                    if (paramName.isBlank()) continue
-                    params[paramName] = child.textContent ?: ""
-                }
-
-                parsed.add(
-                    ToolCall(
-                        id = "call_${UUID.randomUUID()}",
-                        function = FunctionCall(name, mapper.writeValueAsString(params))
-                    )
-                )
-            }
-            parsed
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
-
-    /**
-     * Flattens OpenAI chat messages into a single prompt accepted by Copilot
-     * conversation APIs, optionally injecting a default system prompt.
-     */
     private fun buildPrompt(messages: List<ChatMessage>, defaultSystemPrompt: String): String {
-        val promptBuilder = StringBuilder()
-        val hasSystemMessage = messages.any { it.role == "system" }
-
-        if (!hasSystemMessage && defaultSystemPrompt.isNotBlank()) {
-            promptBuilder.append("System instruction:\n").append(defaultSystemPrompt).append("\n\n")
-        }
-
-        messages.forEach { msg ->
-            when (msg.role) {
-                "system" -> msg.content?.takeIf { it.isNotBlank() }?.let {
-                    promptBuilder.append("System instruction:\n").append(it).append("\n\n")
-                }
-                "user" -> msg.content?.takeIf { it.isNotBlank() }?.let {
-                    promptBuilder.append(it).append("\n")
-                }
-                "assistant" -> msg.content?.takeIf { it.isNotBlank() }?.let {
-                    promptBuilder.append("Previous assistant response:\n").append(it).append("\n")
-                }
-            }
-        }
-
-        return promptBuilder.toString().trim()
+        return GatewayPromptBuilder.build(messages, defaultSystemPrompt)
     }
 
     /** Stops the embedded HTTP server if currently active. */
@@ -743,81 +421,13 @@ class IntelliAiBridgeGateway : AutoCloseable {
         log("IntelliAiBridge Server stopped")
     }
 
-    /**
-     * Returns model metadata for `/v1/models`.
-     *
-     * Uses discovered Copilot models when possible and falls back to a stable
-     * default list when discovery is unavailable.
-     */
     private fun listModels(): List<ModelInfo> {
-        val testProvider = modelListProviderOverride
-        if (testProvider != null) return testProvider()
-
-        val fallback = buildFallbackModels()
-        val project = selectDefaultProject()
-        if (project == null) {
-            log("No open project for model discovery. Returning fallback model list (${fallback.size}).")
-            return fallback
-        }
-
-        val models = copilotBridge.listAvailableModels(project)
-        log("Discovered ${models.size} models from Copilot")
-
-        val discovered = models.map { model ->
-            ModelInfo(
-                id = model.id,
-                owned_by = "github-copilot",
-                created = System.currentTimeMillis() / 1000
-            )
-        }
-        return if (discovered.isNotEmpty()) discovered else fallback
-    }
-
-    private fun buildFallbackModels(): List<ModelInfo> {
-        val settings = currentSettings()
-        val ids = linkedSetOf<String>()
-        settings.defaultModel.takeIf { it.isNotBlank() }?.let { ids.add(it) }
-        ids.add("gpt-4o")
-        ids.add("claude-3.5-sonnet")
-        return ids.map { id -> ModelInfo(id = id, owned_by = "github-copilot") }
+        return modelCatalog.listModels(modelListProviderOverride)
     }
 
     /** Releases server and coroutine resources when the service is disposed. */
     override fun close() {
         stop()
         scope.cancel()
-    }
-
-    /**
-     * Selects project context for a request, honoring `X-IntelliAiBridge-Project`
-     * when provided and falling back to deterministic default selection.
-     */
-    private fun resolveProject(call: ApplicationCall): Project? {
-        val requested = call.request.header("X-IntelliAiBridge-Project")?.trim().orEmpty()
-        if (requested.isNotBlank()) {
-            val selected = findProjectBySelector(requested)
-            if (selected != null) {
-                return selected
-            }
-            log("Requested project '$requested' not found. Falling back to deterministic default project.")
-        }
-        return selectDefaultProject()
-    }
-
-    private fun selectDefaultProject(): Project? {
-        return ProjectManager.getInstance().openProjects
-            .sortedWith(compareBy<Project>({ it.basePath ?: "" }, { it.name }))
-            .firstOrNull()
-    }
-
-    private fun findProjectBySelector(selector: String): Project? {
-        val normalized = selector.lowercase()
-        return ProjectManager.getInstance().openProjects.firstOrNull { project ->
-            val projectName = project.name.lowercase()
-            val basePath = project.basePath?.lowercase()
-            projectName == normalized ||
-                basePath == normalized ||
-                basePath?.substringAfterLast('/') == normalized
-        }
     }
 }
