@@ -73,6 +73,11 @@ intellijPlatform {
         description = """
             Expose IntelliJ language models as an OpenAI-compatible REST API for agents and tools.
         """.trimIndent()
+
+        ideaVersion {
+            sinceBuild = "243"
+            untilBuild = "253.*"
+        }
     }
 
     publishing {
