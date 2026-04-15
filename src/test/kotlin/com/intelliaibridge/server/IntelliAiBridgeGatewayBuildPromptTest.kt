@@ -1,4 +1,4 @@
-package com.intelliaibridge.intellij.server
+package com.intelliaibridge.server
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test

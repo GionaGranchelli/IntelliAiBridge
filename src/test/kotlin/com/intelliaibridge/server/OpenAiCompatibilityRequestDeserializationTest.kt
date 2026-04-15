@@ -1,4 +1,4 @@
-package com.intelliaibridge.intellij.server
+package com.intelliaibridge.server
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue

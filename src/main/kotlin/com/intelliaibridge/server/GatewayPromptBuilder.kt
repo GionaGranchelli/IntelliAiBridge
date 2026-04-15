@@ -1,4 +1,4 @@
-package com.intelliaibridge.intellij.server
+package com.intelliaibridge.server
 
 /**
  * Flattens OpenAI chat messages into a single prompt accepted by Copilot

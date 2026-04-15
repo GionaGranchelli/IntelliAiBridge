@@ -1,4 +1,4 @@
-package com.intelliaibridge.intellij.ui
+package com.intelliaibridge.ui
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.DumbAware
@@ -11,7 +11,7 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.dsl.builder.panel
-import com.intelliaibridge.intellij.server.IntelliAiBridgeGateway
+import com.intelliaibridge.server.IntelliAiBridgeGateway
 import java.awt.BorderLayout
 import javax.swing.JPanel
 import javax.swing.Timer

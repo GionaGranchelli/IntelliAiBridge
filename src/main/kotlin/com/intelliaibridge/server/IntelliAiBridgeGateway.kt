@@ -1,12 +1,12 @@
-package com.intelliaibridge.intellij.server
+package com.intelliaibridge.server
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
-import com.intelliaibridge.intellij.copilot.CopilotBridge
-import com.intelliaibridge.intellij.settings.IntelliAiBridgeSettings
+import com.intelliaibridge.copilot.CopilotBridge
+import com.intelliaibridge.settings.IntelliAiBridgeSettings
 import io.ktor.http.*
 import io.ktor.serialization.jackson.*
 import io.ktor.server.application.*

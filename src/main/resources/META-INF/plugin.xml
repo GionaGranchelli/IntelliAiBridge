@@ -1,5 +1,5 @@
 <idea-plugin>
-    <id>com.intelliaibridge.intellij</id>
+    <id>com.intelliaibridge</id>
     <name>IntelliAiBridge</name>
     <vendor email="support@intelliaibridge.com" url="https://intelliaibridge.com">IntelliAiBridge</vendor>
 
@@ -16,18 +16,18 @@
     </extensions>
 
     <extensions defaultExtensionNs="com.intellij">
-        <applicationService serviceImplementation="com.intelliaibridge.intellij.server.IntelliAiBridgeGateway"/>
-        <applicationService serviceImplementation="com.intelliaibridge.intellij.settings.IntelliAiBridgeSettings"/>
-        <applicationConfigurable instance="com.intelliaibridge.intellij.settings.IntelliAiBridgeSettingsConfigurable"
-                                 id="com.intelliaibridge.intellij.settings.IntelliAiBridgeSettingsConfigurable"
+        <applicationService serviceImplementation="com.intelliaibridge.server.IntelliAiBridgeGateway"/>
+        <applicationService serviceImplementation="com.intelliaibridge.settings.IntelliAiBridgeSettings"/>
+        <applicationConfigurable instance="com.intelliaibridge.settings.IntelliAiBridgeSettingsConfigurable"
+                                 id="com.intelliaibridge.settings.IntelliAiBridgeSettingsConfigurable"
                                  displayName="IntelliAiBridge"/>
-        <postStartupActivity implementation="com.intelliaibridge.intellij.lifecycle.IntelliAiBridgeProjectActivity"/>
-        <statusBarWidgetFactory implementation="com.intelliaibridge.intellij.ui.IntelliAiBridgeStatusBarWidgetFactory" id="IntelliAiBridgeStatusBarWidget"/>
-        <toolWindow id="IntelliAiBridge" anchor="right" factoryClass="com.intelliaibridge.intellij.ui.IntelliAiBridgeToolWindowFactory" icon="/icons/intelliaibridge.svg"/>
+        <postStartupActivity implementation="com.intelliaibridge.lifecycle.IntelliAiBridgeProjectActivity"/>
+        <statusBarWidgetFactory implementation="com.intelliaibridge.ui.IntelliAiBridgeStatusBarWidgetFactory" id="IntelliAiBridgeStatusBarWidget"/>
+        <toolWindow id="IntelliAiBridge" anchor="right" factoryClass="com.intelliaibridge.ui.IntelliAiBridgeToolWindowFactory" icon="/icons/intelliaibridge.svg"/>
     </extensions>
 
     <actions>
-        <action id="IntelliAiBridge.StartServer" class="com.intelliaibridge.intellij.actions.StartServerAction" text="Start IntelliAiBridge Server"/>
-        <action id="IntelliAiBridge.StopServer" class="com.intelliaibridge.intellij.actions.StopServerAction" text="Stop IntelliAiBridge Server"/>
+        <action id="IntelliAiBridge.StartServer" class="com.intelliaibridge.actions.StartServerAction" text="Start IntelliAiBridge Server"/>
+        <action id="IntelliAiBridge.StopServer" class="com.intelliaibridge.actions.StopServerAction" text="Stop IntelliAiBridge Server"/>
     </actions>
 </idea-plugin>

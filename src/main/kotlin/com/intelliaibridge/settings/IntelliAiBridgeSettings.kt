@@ -1,4 +1,4 @@
-package com.intelliaibridge.intellij.settings
+package com.intelliaibridge.settings
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.PersistentStateComponent
@@ -14,7 +14,7 @@ import com.intellij.util.xmlb.XmlSerializerUtil
  * plain-text XML state.
  */
 @State(
-    name = "com.intelliaibridge.intellij.settings.IntelliAiBridgeSettings",
+    name = "com.intelliaibridge.settings.IntelliAiBridgeSettings",
     storages = [Storage("IntelliAiBridge.xml")]
 )
 @Service(Service.Level.APP)

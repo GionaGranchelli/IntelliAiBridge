@@ -1,4 +1,4 @@
-package com.intelliaibridge.intellij.server
+package com.intelliaibridge.server
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager

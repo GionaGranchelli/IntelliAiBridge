@@ -1,10 +1,10 @@
-package com.intelliaibridge.intellij.lifecycle
+package com.intelliaibridge.lifecycle
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
-import com.intelliaibridge.intellij.server.IntelliAiBridgeGateway
-import com.intelliaibridge.intellij.settings.IntelliAiBridgeSettings
+import com.intelliaibridge.server.IntelliAiBridgeGateway
+import com.intelliaibridge.settings.IntelliAiBridgeSettings
 
 /**
  * Project startup hook that auto-starts IntelliAiBridge when enabled in settings.

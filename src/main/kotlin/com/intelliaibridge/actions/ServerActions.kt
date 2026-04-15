@@ -1,9 +1,9 @@
-package com.intelliaibridge.intellij.actions
+package com.intelliaibridge.actions
 
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
-import com.intelliaibridge.intellij.server.IntelliAiBridgeGateway
+import com.intelliaibridge.server.IntelliAiBridgeGateway
 
 /** IntelliJ action that starts the IntelliAiBridge gateway service. */
 class StartServerAction : AnAction() {

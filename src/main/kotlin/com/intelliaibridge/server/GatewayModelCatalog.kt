@@ -1,7 +1,7 @@
-package com.intelliaibridge.intellij.server
+package com.intelliaibridge.server
 
-import com.intelliaibridge.intellij.copilot.CopilotBridge
-import com.intelliaibridge.intellij.settings.IntelliAiBridgeSettings
+import com.intelliaibridge.copilot.CopilotBridge
+import com.intelliaibridge.settings.IntelliAiBridgeSettings
 
 /**
  * Returns model metadata for `/v1/models`.

@@ -65,7 +65,7 @@ intellijPlatform {
     buildSearchableOptions = false
     
     pluginConfiguration {
-        id = "com.intelliaibridge.intellij"
+        id = "com.intelliaibridge"
         name = "IntelliAiBridge"
         vendor {
             name = "IntelliAiBridge Team"

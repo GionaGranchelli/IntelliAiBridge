@@ -1,8 +1,8 @@
-package com.intelliaibridge.intellij.server
+package com.intelliaibridge.server
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import com.intelliaibridge.intellij.copilot.CopilotBridge
-import com.intelliaibridge.intellij.settings.IntelliAiBridgeSettings
+import com.intelliaibridge.copilot.CopilotBridge
+import com.intelliaibridge.settings.IntelliAiBridgeSettings
 import io.ktor.http.CacheControl
 import io.ktor.http.ContentType
 import io.ktor.server.application.ApplicationCall

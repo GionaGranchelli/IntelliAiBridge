@@ -1,4 +1,4 @@
-package com.intelliaibridge.intellij.settings
+package com.intelliaibridge.settings
 
 import com.intellij.credentialStore.CredentialAttributes
 import com.intellij.credentialStore.Credentials

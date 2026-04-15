@@ -1,4 +1,4 @@
-package com.intelliaibridge.intellij.settings
+package com.intelliaibridge.settings
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.Configurable
@@ -8,8 +8,8 @@ import com.intellij.ui.dsl.builder.bindIntText
 import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.builder.bindText
 import com.intellij.ui.dsl.builder.panel
-import com.intelliaibridge.intellij.copilot.CopilotBridge
-import com.intelliaibridge.intellij.server.IntelliAiBridgeGateway
+import com.intelliaibridge.copilot.CopilotBridge
+import com.intelliaibridge.server.IntelliAiBridgeGateway
 import javax.swing.DefaultComboBoxModel
 import javax.swing.JComboBox
 import javax.swing.JComponent

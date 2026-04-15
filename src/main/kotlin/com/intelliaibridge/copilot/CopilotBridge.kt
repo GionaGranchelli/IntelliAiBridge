@@ -1,4 +1,4 @@
-package com.intelliaibridge.intellij.copilot
+package com.intelliaibridge.copilot
 
 import com.github.copilot.agent.CopilotAgentDataKeys
 import com.github.copilot.agent.chatMode.ChatModeService

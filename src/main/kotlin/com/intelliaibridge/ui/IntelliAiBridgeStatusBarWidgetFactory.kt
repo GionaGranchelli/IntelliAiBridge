@@ -1,4 +1,4 @@
-package com.intelliaibridge.intellij.ui
+package com.intelliaibridge.ui
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.IconLoader
@@ -7,7 +7,7 @@ import com.intellij.openapi.wm.StatusBarWidget
 import com.intellij.openapi.wm.StatusBarWidgetFactory
 import com.intellij.openapi.wm.impl.status.EditorBasedWidget
 import com.intellij.util.Consumer
-import com.intelliaibridge.intellij.server.IntelliAiBridgeGateway
+import com.intelliaibridge.server.IntelliAiBridgeGateway
 import java.awt.Component
 import java.awt.event.MouseEvent
 import javax.swing.Icon

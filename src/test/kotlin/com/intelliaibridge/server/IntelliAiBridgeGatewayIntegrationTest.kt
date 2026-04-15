@@ -1,7 +1,7 @@
-package com.intelliaibridge.intellij.server
+package com.intelliaibridge.server
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import com.intelliaibridge.intellij.settings.IntelliAiBridgeSettings
+import com.intelliaibridge.settings.IntelliAiBridgeSettings
 import io.ktor.http.ContentType
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondTextWriter
