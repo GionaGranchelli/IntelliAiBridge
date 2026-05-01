@@ -4,8 +4,8 @@
 
 Use either:
 
-1. `INTELLIAIBRIDGE_API_KEY` environment variable, or
-2. IntelliAiBridge Settings API key field (stored in Password Safe)
+1. `AIBRIDGE_API_KEY` environment variable, or
+2. AiBridge Settings API key field (stored in Password Safe)
 
 Priority: environment variable overrides Password Safe.
 
@@ -25,7 +25,7 @@ Then test auth:
 
 ```bash
 curl http://127.0.0.1:3040/v1/models \
-  -H "Authorization: Bearer <intelliaibridge-api-key>"
+  -H "Authorization: Bearer <aibridge-api-key>"
 ```
 
 ## Common issues
@@ -34,11 +34,11 @@ curl http://127.0.0.1:3040/v1/models \
 
 Log message:
 
-- `IntelliAiBridge Server not started: API key missing...`
+- `AiBridge Server not started: API key missing...`
 
 Fix:
-- Set `INTELLIAIBRIDGE_API_KEY`, or
-- Save key in IntelliAiBridge settings (Password Safe)
+- Set `AIBRIDGE_API_KEY`, or
+- Save key in AiBridge settings (Password Safe)
 
 ### `Invalid API Key`
 
@@ -61,7 +61,7 @@ Fix:
 ### `No open project found`
 
 Cause:
-- No open IntelliJ project available for Copilot session context.
+- No open IDE project available for Copilot session context.
 
 Fix:
 - Open at least one project in IDE and retry.
@@ -82,7 +82,7 @@ Cause:
 Fix:
 - Verify Copilot plugin enabled and authenticated.
 - Retry after IDE restart.
-- Check IntelliJ logs for Copilot exceptions.
+- Check IDE logs for Copilot exceptions.
 
 ## Hardening recommendations
 

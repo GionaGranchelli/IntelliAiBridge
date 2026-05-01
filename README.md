@@ -1,85 +1,53 @@
-# IntelliAiBridge: The IDE-to-Agent Copilot Proxy
+# AiBridge
 
-IntelliAiBridge exposes your existing IntelliJ GitHub Copilot entitlement as a local, **OpenAI-compatible HTTP API**.
+AiBridge is a plugin that exposes IDE-hosted language models (like those from GitHub Copilot) as a local, OpenAI-compatible REST API. This allows you to use your IDE's AI capabilities from external tools, CLI agents, and scripts.
 
-## 💡 Why does this exist?
+## Key Features
 
-Many modern AI coding tools (like OpenDevin, Aider, Cline, or custom autonomous agents) rely on direct API access or CLI tools. However, in many enterprise environments:
-1. **GitHub Copilot CLI or direct API access is restricted** by corporate policy.
-2. **IDE-based Copilot access is approved**, licensed, and authenticated.
+- **OpenAI Compatibility:** Drop-in replacement for any tool expecting the OpenAI API (Chat Completions, Models list).
+- **IDE Integration:** Leverages the models already authenticated and available in your IDE.
+- **Security:** Requires a local API key for all requests; supports storage in the IDE Password Safe.
+- **Monitoring:** Built-in Tool Window showing real-time stats and request logs.
+- **Flexibility:** Supports both streaming (SSE) and non-streaming responses.
 
-**IntelliAiBridge bridges this gap.** If you want to code in a more *agentic* way using external tools, but are constrained to your company's approved IntelliJ Copilot extension, this plugin acts as a secure, local proxy. Your external agents talk to this plugin via the standard OpenAI protocol, and this plugin transparently routes those requests through the authenticated Copilot session already running inside your IDE.
+## Getting Started
 
-## 🚀 What you get
+1. **Install:** Install the "AiBridge" plugin from the JetBrains Marketplace.
+2. **Configure:** 
+   - Go to `Settings -> Tools -> AiBridge`.
+   - Set an **AiBridge API Key** (this is for authenticating your local clients).
+   - Enable "Automatically start server" if desired.
+3. **Run:** The server defaults to `http://127.0.0.1:3040`.
+4. **Verify:** Check the "AiBridge" tool window on the right side of your IDE.
 
-- **Local API server** (`http://127.0.0.1:3040` by default).
-- **Agent-Ready Compatibility:** Supports the OpenAI schema that most agents expect:
-  - `POST /v1/chat/completions` (with streaming support).
-  - Tool call compatibility (`tools` + XML tool-call extraction).
-  - `GET /v1/models` (Model discovery from Copilot).
-- **Secure Authentication:** API key auth (`Authorization: Bearer <key>`) stored safely in IntelliJ Password Safe.
-- **Enterprise Friendly:** No external credential leakage. Traffic flows through your already-approved IDE network path.
-
-## 📦 Requirements
-
-- IntelliJ Platform IDE compatible with this plugin build.
-- GitHub Copilot plugin installed and authenticated.
-- Active Copilot entitlement for the user.
-- Java/Gradle environment for local development.
-
-## ⚡ Quick start
-
-1. **Build/run the plugin sandbox:**
-
-```bash
-./gradlew runIde
-```
-
-2. **Configure the Bridge (Mandatory):**
-- In IntelliJ, open `Settings > Tools > IntelliAiBridge`.
-- Set your `Host` and `Port`.
-- **Set an API Key:** You **must** create a custom API key here. This key acts as your local password; your CLI agents will use this key in their `Authorization` headers to talk to the bridge.
-
-3. **Start the server:**
-- Click `Start` from the IntelliAiBridge tool window, or toggle it from the status bar.
-
-4. **Connect your Agent:**
-Once the server is running, the OpenAI-compatible API is exposed locally. You can now connect **any CLI agent or tool** that supports the OpenAI API (such as `aider`, `cline`, or `interpreter`). Point them to your local address (e.g., `http://127.0.0.1:3040/v1`) and use the API key you just configured.
+## Usage Example
 
 ```bash
 curl http://127.0.0.1:3040/v1/chat/completions \
-  -H "Authorization: Bearer <your-custom-local-key>" \
+  -H "Authorization: Bearer <your-aibridge-key>" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "default",
-    "messages": [{"role": "user", "content": "Tell me a short joke about Java."}],
-    "stream": true
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
 
-## ⚙️ Configuration & Architecture
+## Documentation
 
-- **Auth:** The server requires a local API key. It checks the `INTELLIAIBRIDGE_API_KEY` environment variable first, then the IntelliJ Password Safe.
-- **Models:** You can request specific Copilot models. If left blank, it defaults to your Settings preference or the Copilot default.
-- **Chat Mode:** Defaults to **Agent** mode when available, falling back to **Ask** mode.
-- **Tool Calling:** The bridge translates standard OpenAI `tools` arrays into Copilot prompts and extracts Copilot's `<invoke>` XML responses back into OpenAI `tool_calls`.
+- [Architecture](docs/ARCHITECTURE.md) - Internal design and request flow.
+- [API Reference](docs/API.md) - Detailed endpoint definitions.
+- [Operations](docs/OPERATIONS.md) - Troubleshooting and configuration.
 
-For deeper technical details, see the [API reference](docs/API.md), [Architecture](docs/ARCHITECTURE.md), and [Operations](docs/OPERATIONS.md).
+## Development
 
-## 🔒 Security Guidance
+Requires IntelliJ IDEA with the [IntelliJ Platform Gradle Plugin](https://plugins.jetbrains.com/docs/intellij/tools-gradle-intellij-plugin.html).
 
-- **Bind to `127.0.0.1` (localhost)** unless you explicitly need LAN access. Do not expose this to the public internet.
-- **Use a strong local API key.** Even on localhost, this prevents unauthorized scripts on your machine from using your Copilot quota.
-- **Corporate Compliance:** Treat this service as a privileged bridge to your Copilot identity. Ensure your use of agentic workflows complies with your organization's AI and data-handling policies.
-
-## 🛠️ Development
-
-Run tests:
 ```bash
-./gradlew test --no-daemon
+./gradlew runIde      # Run a development instance of the IDE
+./gradlew test        # Run the test suite
+./gradlew buildPlugin # Build the distribution ZIP
 ```
 
-Build the plugin:
-```bash
-./gradlew buildPlugin --no-daemon
-```
+## License
+
+This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.

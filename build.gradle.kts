@@ -4,7 +4,7 @@ plugins {
     id("org.jetbrains.intellij.platform") version "2.0.1"
 }
 
-group = "com.intelliaibridge"
+group = "com.aibridge"
 version = "0.1.0"
 
 repositories {
@@ -65,14 +65,11 @@ intellijPlatform {
     buildSearchableOptions = false
     
     pluginConfiguration {
-        id = "com.intelliaibridge"
-        name = "IntelliAiBridge"
+        id = "com.aibridge"
+        name = "AiBridge"
         vendor {
-            name = "IntelliAiBridge Team"
+            name = "AiBridge"
         }
-        description = """
-            Expose IntelliJ language models as an OpenAI-compatible REST API for agents and tools.
-        """.trimIndent()
 
         ideaVersion {
             sinceBuild = "243"

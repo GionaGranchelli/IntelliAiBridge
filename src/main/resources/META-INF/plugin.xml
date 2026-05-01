@@ -1,14 +1,31 @@
 <idea-plugin>
-    <id>com.intelliaibridge</id>
-    <name>IntelliAiBridge</name>
-    <vendor email="support@intelliaibridge.com" url="https://intelliaibridge.com">IntelliAiBridge</vendor>
+    <id>com.aibridge</id>
+    <name>AiBridge</name>
+    <vendor email="support@aibridge.com" url="https://aibridge.com">AiBridge</vendor>
 
     <description><![CDATA[
-    Expose IntelliJ language models as an OpenAI-compatible REST API for agents and tools.
+    AiBridge turns your JetBrains IDE into a local AI gateway. It exposes the language models available via GitHub Copilot (and other providers) as a standard OpenAI-compatible REST API.
+    <br><br>
+    <b>Features:</b>
+    <ul>
+        <li>Standard OpenAI API: Implements /v1/chat/completions and /v1/models.</li>
+        <li>Streaming Support: Full support for Server-Sent Events (SSE).</li>
+        <li>Tool Window: Monitor traffic, see active models, and control the server.</li>
+        <li>Local Security: Authenticate local requests with a custom bearer token.</li>
+    </ul>
     ]]></description>
 
+    <change-notes><![CDATA[
+    Initial release of AiBridge.
+    <ul>
+        <li>OpenAI-compatible HTTP gateway.</li>
+        <li>GitHub Copilot model discovery.</li>
+        <li>IDE Tool Window and Status Bar integration.</li>
+    </ul>
+    ]]>
+    </change-notes>
+
     <depends>com.intellij.modules.platform</depends>
-    <depends optional="true" config-file="copilot-llm.xml">com.intellij.ml.llm</depends>
     <depends>com.github.copilot</depends>
 
     <extensions defaultExtensionNs="org.jetbrains.kotlin">
@@ -16,18 +33,19 @@
     </extensions>
 
     <extensions defaultExtensionNs="com.intellij">
-        <applicationService serviceImplementation="com.intelliaibridge.server.IntelliAiBridgeGateway"/>
-        <applicationService serviceImplementation="com.intelliaibridge.settings.IntelliAiBridgeSettings"/>
-        <applicationConfigurable instance="com.intelliaibridge.settings.IntelliAiBridgeSettingsConfigurable"
-                                 id="com.intelliaibridge.settings.IntelliAiBridgeSettingsConfigurable"
-                                 displayName="IntelliAiBridge"/>
-        <postStartupActivity implementation="com.intelliaibridge.lifecycle.IntelliAiBridgeProjectActivity"/>
-        <statusBarWidgetFactory implementation="com.intelliaibridge.ui.IntelliAiBridgeStatusBarWidgetFactory" id="IntelliAiBridgeStatusBarWidget"/>
-        <toolWindow id="IntelliAiBridge" anchor="right" factoryClass="com.intelliaibridge.ui.IntelliAiBridgeToolWindowFactory" icon="/icons/intelliaibridge.svg"/>
+        <applicationService serviceImplementation="com.aibridge.server.AiBridgeGateway"/>
+        <applicationService serviceImplementation="com.aibridge.settings.AiBridgeSettings"/>
+        <applicationConfigurable instance="com.aibridge.settings.AiBridgeSettingsConfigurable"
+                                 id="com.aibridge.settings.AiBridgeSettingsConfigurable"
+                                 displayName="AiBridge"
+                                 groupId="tools"/>
+        <postStartupActivity implementation="com.aibridge.lifecycle.AiBridgeProjectActivity"/>
+        <statusBarWidgetFactory implementation="com.aibridge.ui.AiBridgeStatusBarWidgetFactory" id="AiBridgeStatusBarWidget"/>
+        <toolWindow id="AiBridge" anchor="right" factoryClass="com.aibridge.ui.AiBridgeToolWindowFactory" icon="/icons/aibridge.svg"/>
     </extensions>
 
     <actions>
-        <action id="IntelliAiBridge.StartServer" class="com.intelliaibridge.actions.StartServerAction" text="Start IntelliAiBridge Server"/>
-        <action id="IntelliAiBridge.StopServer" class="com.intelliaibridge.actions.StopServerAction" text="Stop IntelliAiBridge Server"/>
+        <action id="AiBridge.StartServer" class="com.aibridge.actions.StartServerAction" text="Start AiBridge Server"/>
+        <action id="AiBridge.StopServer" class="com.aibridge.actions.StopServerAction" text="Stop AiBridge Server"/>
     </actions>
 </idea-plugin>

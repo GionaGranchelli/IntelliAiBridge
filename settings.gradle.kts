@@ -1,1 +1,1 @@
-rootProject.name = "intelliaibridge-intellij"
+rootProject.name = "aibridge"

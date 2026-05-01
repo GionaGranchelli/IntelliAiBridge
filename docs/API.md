@@ -5,7 +5,7 @@ Base URL: `http://<host>:<port>` (default `http://127.0.0.1:3040`)
 Authentication header required on all `/v1/*` endpoints:
 
 ```http
-Authorization: Bearer <intelliaibridge-api-key>
+Authorization: Bearer <aibridge-api-key>
 ```
 
 ## `GET /health`
@@ -17,7 +17,7 @@ Health probe endpoint (no auth required).
 ```json
 {
   "status": "ok",
-  "platform": "intellij",
+  "platform": "ide",
   "copilot": "enabled"
 }
 ```

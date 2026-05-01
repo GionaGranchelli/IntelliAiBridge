@@ -1,0 +1,57 @@
+### Variables
+@host = 127.0.0.1
+@port = 3040
+@baseUrl = http://{{host}}:{{port}}
+@apiKey = test
+
+### Health Check (No Auth)
+GET {{baseUrl}}/health
+Accept: application/json
+
+### List Models
+GET {{baseUrl}}/v1/models
+Authorization: Bearer {{apiKey}}
+Accept: application/json
+
+### Chat Completions (Streaming)
+POST {{baseUrl}}/v1/chat/completions
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{
+  "model": "gpt-4o",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello! How are you?"
+    }
+  ],
+  "stream": true
+}
+
+### Chat Completions (Non-Streaming)
+POST {{baseUrl}}/v1/chat/completions
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{
+  "model": "gpt-5-mini",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Tell me a short joke about programming."
+    }
+  ],
+  "stream": false
+}
+
+### Legacy Completions
+POST {{baseUrl}}/v1/completions
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{
+  "model": "gpt-4o",
+  "prompt": "The best thing about Kotlin is",
+  "max_tokens": 50
+}

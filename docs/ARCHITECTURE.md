@@ -2,20 +2,20 @@
 
 ## Overview
 
-IntelliAiBridge is an IntelliJ application-level plugin that hosts a local Ktor server and proxies requests into GitHub Copilot agent sessions.
+AiBridge is an application-level plugin that hosts a local Ktor server and proxies requests into GitHub Copilot agent sessions.
 
 Request flow:
 
 1. Client sends OpenAI-compatible request to local HTTP endpoint.
-2. `IntelliAiBridgeGateway` authenticates, validates, rate-limits, and routes the request.
-3. Gateway resolves IntelliJ project + model settings.
+2. `AiBridgeGateway` authenticates, validates, rate-limits, and routes the request.
+3. Gateway resolves IDE project + model settings.
 4. `CopilotBridge` opens Copilot session and sends prompt.
 5. Copilot events are converted into OpenAI-style response payloads.
 6. Session is cleaned up.
 
 ## Main components
 
-### `IntelliAiBridgeGateway`
+### `AiBridgeGateway`
 
 Application service responsible for:
 - Ktor server lifecycle (`start`, `stop`, `close`)
@@ -36,9 +36,9 @@ Adapter around Copilot plugin APIs:
 
 ### Settings
 
-- `IntelliAiBridgeSettings`: persisted server/runtime config
-- `IntelliAiBridgeSecretStore`: API key storage via IntelliJ Password Safe
-- `IntelliAiBridgeSettingsConfigurable`: IntelliJ Settings UI
+- `AiBridgeSettings`: persisted server/runtime config
+- `AiBridgeSecretStore`: API key storage via IDE Password Safe
+- `AiBridgeSettingsConfigurable`: Settings UI
 
 ### UI integration
 
@@ -68,3 +68,4 @@ The gateway intentionally accepts superset-style input for better client interop
 - Requires active Copilot plugin/session inside IDE.
 - API key is mandatory for `/v1/*` endpoints.
 - Local service is intended for trusted local automation clients.
+ts.
