@@ -7,6 +7,7 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.ide.CopyPasteManager
+import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
@@ -20,6 +21,7 @@ import java.awt.datatransfer.StringSelection
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.DefaultListModel
+import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.ListSelectionModel
 import javax.swing.Timer
@@ -65,8 +67,9 @@ class AiBridgeToolWindowFactory : ToolWindowFactory, DumbAware {
         val modelsList = JBList(modelsListModel).apply {
             selectionMode = ListSelectionModel.SINGLE_SELECTION
             emptyText.text = "Discovering models..."
-            installCellRenderer { model ->
-                JBLabel(model.label ?: model.id).apply {
+            cellRenderer = object : SimpleListCellRenderer<ModelInfo>() {
+                override fun customize(list: JList<out ModelInfo>, value: ModelInfo?, index: Int, selected: Boolean, hasFocus: Boolean) {
+                    text = value?.label ?: value?.id ?: ""
                     border = com.intellij.util.ui.JBUI.Borders.empty(2, 5)
                 }
             }

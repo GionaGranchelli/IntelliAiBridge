@@ -2,11 +2,12 @@ package com.aibridge.server
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.aibridge.bridge.AiProviderBridge
-import com.aibridge.bridge.GeminiBridge
 import com.aibridge.copilot.CopilotBridge
 import com.aibridge.settings.AiBridgeSettings
 import io.ktor.http.*
@@ -123,6 +124,15 @@ class AiBridgeGateway : AutoCloseable {
         logListeners.forEach { it.onLog(formatted) }
     }
 
+    private fun notify(message: String, type: NotificationType = NotificationType.INFORMATION) {
+        runCatching {
+            NotificationGroupManager.getInstance()
+                .getNotificationGroup("AiBridge")
+                ?.createNotification("AiBridge", message, type)
+                ?.notify(null)
+        }
+    }
+
     internal fun setSettingsForTests(settings: AiBridgeSettings?) {
         settingsOverride = settings
     }
@@ -179,7 +189,8 @@ class AiBridgeGateway : AutoCloseable {
             log("AiBridge Checking API key... (length=${effectiveApiKey.length})")
             if (effectiveApiKey.isBlank()) {
                 val error = "AiBridge Server not started: API key missing. Set AIBRIDGE_API_KEY or configure AiBridge API Key in settings."
-                log(error) // Log every time during this debug phase
+                log(error)
+                notify(error, NotificationType.WARNING)
                 return
             }
             lastStartError = null
@@ -226,14 +237,14 @@ class AiBridgeGateway : AutoCloseable {
                     val authHeader = call.request.header(HttpHeaders.Authorization)
                     if (authHeader != "Bearer $activeApiKey") {
                         log("[${requestId(call)}] Unauthorized request from ${call.request.local.remoteHost}")
-                        call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Invalid API Key"))
+                        call.respond(HttpStatusCode.Unauthorized, OpenAiErrorResponse(OpenAiError("Invalid API Key", "invalid_request_error", code = "invalid_api_key")))
                         finish()
                         return@intercept
                     }
 
                     if (!checkRateLimit(settings.rateLimitPerMinute)) {
                         log("[${requestId(call)}] Rate limit exceeded")
-                        call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Rate limit exceeded"))
+                        call.respond(HttpStatusCode.TooManyRequests, OpenAiErrorResponse(OpenAiError("Rate limit exceeded", "rate_limit_error")))
                         finish()
                         return@intercept
                     }
@@ -241,7 +252,7 @@ class AiBridgeGateway : AutoCloseable {
                     if (isCompletionEndpoint(call)) {
                         if (!tryAcquireRequestSlot(settings.maxConcurrentRequests)) {
                             log("[${requestId(call)}] Server at capacity")
-                            call.respond(HttpStatusCode.ServiceUnavailable, mapOf("error" to "Server at capacity"))
+                            call.respond(HttpStatusCode.ServiceUnavailable, OpenAiErrorResponse(OpenAiError("Server at capacity", "server_error")))
                             finish()
                             return@intercept
                         }
@@ -264,7 +275,7 @@ class AiBridgeGateway : AutoCloseable {
                         if (model != null) {
                             call.respond(model)
                         } else {
-                            call.respond(HttpStatusCode.NotFound, mapOf("error" to "Model not found"))
+                            call.respond(HttpStatusCode.NotFound, OpenAiErrorResponse(OpenAiError("Model not found", "invalid_request_error", code = "model_not_found")))
                         }
                     }
                     post("/v1/chat/completions") {
@@ -297,9 +308,17 @@ class AiBridgeGateway : AutoCloseable {
             }
             log("AiBridge Active Provider: ${settings.activeProvider}")
             log("AiBridge API key source: $keySource")
-            log("AiBridge Server started on http://${settings.host}:${settings.port}")
+            val startMsg = "AiBridge Server started on http://${settings.host}:${settings.port}"
+            log(startMsg)
+            notify(startMsg)
         } catch (e: Exception) {
-            log("AiBridge Server failed to start: ${e.message}")
+            val errorMsg = if (e.cause is java.net.BindException || e is java.net.BindException) {
+                "AiBridge failed to start: Port already in use. Please change the port in settings."
+            } else {
+                "AiBridge Server failed to start: ${e.message}"
+            }
+            log(errorMsg)
+            notify(errorMsg, NotificationType.ERROR)
             e.printStackTrace()
         } finally {
             synchronized(lifecycleLock) {
@@ -321,12 +340,12 @@ class AiBridgeGateway : AutoCloseable {
         } catch (e: TimeoutCancellationException) {
             log("[${requestId(call)}] Request timeout")
             if (!call.response.isCommitted) {
-                call.respond(HttpStatusCode.GatewayTimeout, mapOf("error" to "Request timeout"))
+                call.respond(HttpStatusCode.GatewayTimeout, OpenAiErrorResponse(OpenAiError("Request timeout", "server_error", code = "request_timeout")))
             }
         } catch (e: Exception) {
             log("[${requestId(call)}] Error handling request: ${e.message}")
             if (!call.response.isCommitted) {
-                call.respond(HttpStatusCode.InternalServerError, mapOf("error" to (e.message ?: "Internal error")))
+                call.respond(HttpStatusCode.InternalServerError, OpenAiErrorResponse(OpenAiError(e.message ?: "Internal error", "server_error")))
             }
         }
     }
@@ -398,7 +417,7 @@ class AiBridgeGateway : AutoCloseable {
         } catch (e: Exception) {
             log("[$requestId] Failed to read request body for $endpoint: ${e.message}")
             if (!call.response.isCommitted) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Unable to read request body"))
+                call.respond(HttpStatusCode.BadRequest, OpenAiErrorResponse(OpenAiError("Unable to read request body", "invalid_request_error")))
             }
             return null
         }
@@ -406,7 +425,7 @@ class AiBridgeGateway : AutoCloseable {
         if (body.isBlank()) {
             log("[$requestId] Empty request body for $endpoint")
             if (!call.response.isCommitted) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Empty request body"))
+                call.respond(HttpStatusCode.BadRequest, OpenAiErrorResponse(OpenAiError("Empty request body", "invalid_request_error")))
             }
             return null
         }
@@ -417,7 +436,7 @@ class AiBridgeGateway : AutoCloseable {
             val preview = body.replace("\n", " ").take(500)
             log("[$requestId] Invalid JSON body for $endpoint: ${e.message}. bodyPreview=$preview")
             if (!call.response.isCommitted) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid JSON request body"))
+                call.respond(HttpStatusCode.BadRequest, OpenAiErrorResponse(OpenAiError("Invalid JSON request body", "invalid_request_error")))
             }
             null
         }
@@ -444,6 +463,7 @@ class AiBridgeGateway : AutoCloseable {
         if (toStop != null) {
             toStop.stop(1000, 1000)
             log("AiBridge Server stopped")
+            notify("AiBridge Server stopped")
         }
     }
 

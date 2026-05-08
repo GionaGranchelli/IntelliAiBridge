@@ -2,7 +2,7 @@ package com.aibridge.settings
 
 import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.options.Configurable
+import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.dsl.builder.bindIntText
@@ -22,7 +22,9 @@ import javax.swing.event.DocumentListener
 /**
  * Settings UI for configuring AiBridge gateway behavior.
  */
-class AiBridgeSettingsConfigurable : Configurable {
+class AiBridgeSettingsConfigurable : SearchableConfigurable {
+    override fun getId(): String = "com.aibridge.settings.AiBridgeSettingsConfigurable"
+
     /** UI option representing a model identifier and display label. */
     data class ModelOption(val id: String, val label: String) {
         override fun toString(): String = label

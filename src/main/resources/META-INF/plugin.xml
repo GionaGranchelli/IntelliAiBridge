@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.aibridge</id>
     <name>AiBridge</name>
-    <vendor email="support@aibridge.com" url="https://aibridge.com">AiBridge</vendor>
+    <vendor email="thecrab@gionag.com" url="https://gionag.com">AiBridge</vendor>
 
     <description><![CDATA[
     AiBridge turns your JetBrains IDE into a local AI gateway. It exposes the language models available via GitHub Copilot (and other providers) as a standard OpenAI-compatible REST API.
@@ -42,6 +42,7 @@
         <postStartupActivity implementation="com.aibridge.lifecycle.AiBridgeProjectActivity"/>
         <statusBarWidgetFactory implementation="com.aibridge.ui.AiBridgeStatusBarWidgetFactory" id="AiBridgeStatusBarWidget"/>
         <toolWindow id="AiBridge" anchor="right" factoryClass="com.aibridge.ui.AiBridgeToolWindowFactory" icon="/icons/aibridge.svg"/>
+        <notificationGroup id="AiBridge" displayType="BALLOON" isLogByDefault="true" toolWindowId="AiBridge"/>
     </extensions>
 
     <actions>

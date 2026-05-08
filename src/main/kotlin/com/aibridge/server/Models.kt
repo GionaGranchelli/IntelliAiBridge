@@ -186,6 +186,18 @@ data class ChatChunkToolCall(
 )
 
 /**
+ * OpenAI-compatible error response.
+ */
+data class OpenAiErrorResponse(val error: OpenAiError)
+
+data class OpenAiError(
+    val message: String,
+    val type: String,
+    val param: String? = null,
+    val code: String? = null
+)
+
+/**
  * OpenAI-compatible model descriptor used by `/v1/models`.
  */
 data class ModelInfo(
