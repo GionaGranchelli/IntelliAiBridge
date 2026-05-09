@@ -73,7 +73,7 @@ intellijPlatform {
 
         ideaVersion {
             sinceBuild = "243"
-            untilBuild = "253.*"
+            untilBuild = "261.*"
         }
     }
 
@@ -85,7 +85,7 @@ intellijPlatform {
 tasks {
     patchPluginXml {
         sinceBuild = "243"
-        untilBuild = "253.*"
+        untilBuild = "261.*"
     }
 
     withType<Test> {
