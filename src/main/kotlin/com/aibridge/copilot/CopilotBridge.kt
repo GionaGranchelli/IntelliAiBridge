@@ -6,7 +6,6 @@ import com.aibridge.bridge.AiSessionHandle
 import com.aibridge.bridge.AvailableModel
 import com.github.copilot.agent.CopilotAgentDataKeys
 import com.github.copilot.agent.chatMode.ChatModeService
-import com.github.copilot.agent.chatMode.UserSelectedChatModeService
 import com.github.copilot.agent.conversation.ConversationProgressHandler as AgentProgressHandler
 import com.github.copilot.agent.conversation.CopilotAgentConversationProgressEvent
 import com.github.copilot.agent.message.CopilotAgentMessageType
@@ -15,6 +14,7 @@ import com.github.copilot.agent.session.CopilotAgentSession
 import com.github.copilot.agent.session.CopilotAgentSessionController
 import com.github.copilot.agent.session.CopilotAgentSessionManager
 import com.github.copilot.chat.conversation.agent.rpc.command.ChatMode
+import com.github.copilot.chat.conversation.agent.rpc.command.CopilotModel
 import com.github.copilot.chat.conversation.agent.rpc.command.ChatMode as RpcChatMode
 import com.github.copilot.model.CompositeModelService
 import com.github.copilot.model.ModelScope
@@ -24,7 +24,6 @@ import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
-import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -75,7 +74,7 @@ class CopilotBridge : AiProviderBridge {
         val chatModeService = project.getService(ChatModeService::class.java)
         val selectedMode = selectPreferredMode(chatModeService)
         if (selectedMode != null) {
-            project.getService(UserSelectedChatModeService::class.java)?.setSelectedChatMode(selectedMode)
+            trySetSelectedChatMode(project, selectedMode)
         }
 
         val modelIdStr = (requestedModel?.takeIf { it.isNotBlank() }
@@ -85,7 +84,7 @@ class CopilotBridge : AiProviderBridge {
         val requestedModelId = if (modelIdStr != "default") {
             val (modelName, providerName) = ChatMode.parseModel(modelIdStr)
             val modelService = ApplicationManager.getApplication().getService(CompositeModelService::class.java)
-            val requested = modelService?.getModel(modelName, providerName)
+            val requested = modelService?.let { findModel(it, modelName, providerName) }
             if (requested != null) {
                 val scope = if (selectedMode?.isAgentKind() == true) ModelScope.AgentPanel else ModelScope.ChatPanel
                 project.getService(UserSelectedModelService::class.java)?.setSelectedModel(scope, requested)
@@ -214,7 +213,7 @@ class CopilotBridge : AiProviderBridge {
     private fun listFromCompositeModelCatalog(): List<AvailableModel> {
         return try {
             val modelService = ApplicationManager.getApplication().getService(CompositeModelService::class.java) ?: return emptyList()
-            modelService.refreshModels()
+            refreshModels(modelService)
             var models = mapCatalogModels(modelService)
             if (models.isEmpty()) {
                 repeat(6) {
@@ -255,5 +254,35 @@ class CopilotBridge : AiProviderBridge {
         // Default to Agent mode for richer autonomous behavior; fallback to Ask.
         return modes.firstOrNull { it.isAgentKind() || it.id.equals(RpcChatMode.BUILT_IN_AGENT_ID, ignoreCase = true) }
             ?: modes.firstOrNull { it.isAskKind() || it.id.equals("Ask", ignoreCase = true) }
+    }
+
+    private fun trySetSelectedChatMode(project: Project, selectedMode: RpcChatMode) {
+        try {
+            val serviceClass = Class.forName("com.github.copilot.agent.chatMode.UserSelectedChatModeService")
+            val service = project.getService(serviceClass) ?: return
+            val setter = serviceClass.methods.firstOrNull { method ->
+                method.name == "setSelectedChatMode" && method.parameterCount == 1
+            } ?: return
+            setter.invoke(service, selectedMode)
+        } catch (_: Throwable) {
+            // Older/newer Copilot builds may not expose this service or setter.
+        }
+    }
+
+    private fun refreshModels(modelService: CompositeModelService) {
+        try {
+            modelService.refreshModels()
+        } catch (_: Throwable) {
+            // Keep best-effort behavior if refresh APIs change across Copilot builds.
+        }
+    }
+
+    private fun findModel(modelService: CompositeModelService, modelName: String, providerName: String?): CopilotModel? {
+        return modelService.models.unscoped.value.firstOrNull { model ->
+            val sameName = model.modelName.equals(modelName, ignoreCase = true)
+            val sameProvider = providerName.isNullOrBlank() ||
+                model.providerName.equals(providerName, ignoreCase = true)
+            sameName && sameProvider
+        }
     }
 }

@@ -16,6 +16,11 @@
     ]]></description>
 
     <change-notes><![CDATA[
+    <b>0.2.1</b>
+    <ul>
+        <li>Extended until-build to 263.* (IDE 2026.1+) for forward compatibility.</li>
+    </ul>
+    <br>
     Initial release of AiBridge.
     <ul>
         <li>OpenAI-compatible HTTP gateway.</li>

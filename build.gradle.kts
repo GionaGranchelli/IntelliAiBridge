@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.aibridge"
-version = "0.2.0"
+version = "0.2.1"
 
 repositories {
     mavenCentral()
@@ -73,7 +73,7 @@ intellijPlatform {
 
         ideaVersion {
             sinceBuild = "243"
-            untilBuild = "261.*"
+            untilBuild = "263.*"
         }
     }
 
@@ -85,7 +85,7 @@ intellijPlatform {
 tasks {
     patchPluginXml {
         sinceBuild = "243"
-        untilBuild = "261.*"
+        untilBuild = "263.*"
     }
 
     withType<Test> {
