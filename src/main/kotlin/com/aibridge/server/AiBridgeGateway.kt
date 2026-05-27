@@ -301,10 +301,10 @@ class AiBridgeGateway : AutoCloseable {
                 }
             }
 
+            activeApiKey = effectiveApiKey
             createdServer.start(wait = false)
             synchronized(lifecycleLock) {
                 server = createdServer
-                activeApiKey = effectiveApiKey
             }
             log("AiBridge Active Provider: ${settings.activeProvider}")
             log("AiBridge API key source: $keySource")

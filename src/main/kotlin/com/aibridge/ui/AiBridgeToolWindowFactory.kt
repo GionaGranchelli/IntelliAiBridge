@@ -121,7 +121,7 @@ class AiBridgeToolWindowFactory : ToolWindowFactory, DumbAware {
 
         var lastModels: List<ModelInfo> = emptyList()
 
-        // Timer to update stats
+        // Timer to update stats (model listing offloaded to background thread)
         val statsTimer = Timer(2000) {
             val stats = gateway.getStats()
             val total = stats["totalRequests"] as Int
@@ -135,12 +135,17 @@ class AiBridgeToolWindowFactory : ToolWindowFactory, DumbAware {
             statusLabel.text = "Status: ${if (running) "Running" else "Stopped"}"
             statusLabel.foreground = if (running) com.intellij.ui.JBColor.GREEN else com.intellij.ui.JBColor.RED
 
-            val currentModels = gateway.listModels()
-            if (currentModels != lastModels) {
-                lastModels = currentModels
-                modelsLabel.text = "Models: ${currentModels.size}"
-                modelsListModel.clear()
-                currentModels.forEach { modelsListModel.addElement(it) }
+            // Model listing blocks and must NOT run on EDT
+            ApplicationManager.getApplication().executeOnPooledThread {
+                val currentModels = gateway.listModels()
+                ApplicationManager.getApplication().invokeLater {
+                    if (currentModels != lastModels) {
+                        lastModels = currentModels
+                        modelsLabel.text = "Models: ${currentModels.size}"
+                        modelsListModel.clear()
+                        currentModels.forEach { modelsListModel.addElement(it) }
+                    }
+                }
             }
         }
         statsTimer.start()
