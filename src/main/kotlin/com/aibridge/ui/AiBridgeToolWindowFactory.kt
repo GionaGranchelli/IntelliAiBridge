@@ -104,20 +104,60 @@ class AiBridgeToolWindowFactory : ToolWindowFactory, DumbAware {
         
         val logListener = object : AiBridgeGateway.LogListener {
             private val maxLogLines = 5000
+            private val pendingLines = StringBuilder()
+            private var flushScheduled = false
+            private var lastFlushTime = 0L
+            private val minFlushInterval = 200L
 
             override fun onLog(message: String) {
-                ApplicationManager.getApplication().invokeLater {
-                    logArea.append(message + "\n")
-                    // Trim old lines when exceeding the cap
-                    val doc = logArea.document
-                    var lineCount = doc.defaultRootElement.elementCount
-                    while (lineCount > maxLogLines + 100) { // buffer so we don't trim on every line
-                        val firstLineEnd = doc.defaultRootElement.getElement(0).endOffset
-                        doc.remove(0, firstLineEnd + 1)
-                        lineCount = doc.defaultRootElement.elementCount
-                    }
-                    logArea.caretPosition = doc.length
+                synchronized(pendingLines) {
+                    pendingLines.append(message).append("\n")
                 }
+                scheduleFlush()
+            }
+
+            private fun scheduleFlush() {
+                synchronized(pendingLines) {
+                    if (flushScheduled) return
+                    val now = System.currentTimeMillis()
+                    val elapsed = now - lastFlushTime
+                    if (elapsed >= minFlushInterval) {
+                        flushScheduled = true
+                        ApplicationManager.getApplication().invokeLater { flushPending() }
+                    } else {
+                        // Coalesce: wait until the minimum interval has passed
+                        flushScheduled = true
+                        val delay = (minFlushInterval - elapsed).toInt()
+                        Timer(delay) {
+                            ApplicationManager.getApplication().invokeLater { flushPending() }
+                        }.apply {
+                            isRepeats = false
+                            start()
+                        }
+                    }
+                }
+            }
+
+            private fun flushPending() {
+                val lines: String
+                synchronized(pendingLines) {
+                    lines = pendingLines.toString()
+                    pendingLines.setLength(0)
+                    flushScheduled = false
+                    lastFlushTime = System.currentTimeMillis()
+                }
+                if (lines.isEmpty()) return
+
+                logArea.append(lines)
+                // Bulk trim: remove all excess lines in one operation instead of a while-loop
+                val doc = logArea.document
+                val lineCount = doc.defaultRootElement.elementCount
+                if (lineCount > maxLogLines + 100) {
+                    val linesToRemove = lineCount - maxLogLines
+                    val cutOffset = doc.defaultRootElement.getElement(linesToRemove).startOffset
+                    doc.remove(0, cutOffset)
+                }
+                logArea.caretPosition = doc.length
             }
         }
         gateway.addLogListener(logListener)

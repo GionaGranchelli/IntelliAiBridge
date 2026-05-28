@@ -67,38 +67,47 @@ class CopilotBridge : AiProviderBridge {
             ?: throw IllegalStateException("GitHub Copilot Session Manager not found")
 
         val session = sessionManager.createSession { }
-        sessionManager.activateSession(session)
-        val controller = sessionManager.getCurrentSessionController()
-            ?: throw IllegalStateException("Copilot session controller unavailable")
+        try {
+            sessionManager.activateSession(session)
+            val controller = sessionManager.getCurrentSessionController()
+                ?: throw IllegalStateException("Copilot session controller unavailable")
 
-        val chatModeService = project.getService(ChatModeService::class.java)
-        val selectedMode = selectPreferredMode(chatModeService)
-        if (selectedMode != null) {
-            trySetSelectedChatMode(project, selectedMode)
-        }
+            val chatModeService = project.getService(ChatModeService::class.java)
+            val selectedMode = selectPreferredMode(chatModeService)
+            if (selectedMode != null) {
+                trySetSelectedChatMode(project, selectedMode)
+            }
 
-        val modelIdStr = (requestedModel?.takeIf { it.isNotBlank() }
-            ?: defaultModel.takeIf { it.isNotBlank() })
-            ?: "default"
+            val modelIdStr = (requestedModel?.takeIf { it.isNotBlank() }
+                ?: defaultModel.takeIf { it.isNotBlank() })
+                ?: "default"
 
-        val requestedModelId = if (modelIdStr != "default") {
-            val (modelName, providerName) = ChatMode.parseModel(modelIdStr)
-            val modelService = ApplicationManager.getApplication().getService(CompositeModelService::class.java)
-            val requested = modelService?.let { findModel(it, modelName, providerName) }
-            if (requested != null) {
-                // Only set model on the DataContext for this session — do NOT
-                // mutate the user's global Copilot model selection.
-                requested.toModelId()
+            val requestedModelId = if (modelIdStr != "default") {
+                val (modelName, providerName) = ChatMode.parseModel(modelIdStr)
+                val modelService = ApplicationManager.getApplication().getService(CompositeModelService::class.java)
+                val requested = modelService?.let { findModel(it, modelName, providerName) }
+                if (requested != null) {
+                    // Only set model on the DataContext for this session — do NOT
+                    // mutate the user's global Copilot model selection.
+                    requested.toModelId()
+                } else null
             } else null
-        } else null
 
-        val builder = SimpleDataContext.builder()
-            .setParent(SimpleDataContext.builder().build())
-        if (requestedModelId != null) {
-            builder.add(CopilotAgentDataKeys.MODEL_ID, requestedModelId)
+            val builder = SimpleDataContext.builder()
+                .setParent(SimpleDataContext.builder().build())
+            if (requestedModelId != null) {
+                builder.add(CopilotAgentDataKeys.MODEL_ID, requestedModelId)
+            }
+
+            return SessionHandle(sessionManager, session, controller, builder.build(), selectedMode?.id)
+        } catch (e: Exception) {
+            try {
+                sessionManager.deleteSession(session.id)
+            } catch (_: Exception) {
+                // Best-effort cleanup — swallow secondary failures
+            }
+            throw e
         }
-
-        return SessionHandle(sessionManager, session, controller, builder.build(), selectedMode?.id)
     }
 
     /** Sends prompt text and forwards mapped Copilot progress events. */
