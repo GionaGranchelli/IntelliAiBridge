@@ -6,16 +6,24 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.header
 
 /**
+ * Abstracts project resolution for testability.
+ */
+internal interface IGatewayProjectResolver {
+    fun resolveProject(call: ApplicationCall): Project?
+    fun selectDefaultProject(): Project?
+}
+
+/**
  * Resolves IDE project context for incoming requests.
  */
 internal class GatewayProjectResolver(
     private val log: (String) -> Unit
-) {
+) : IGatewayProjectResolver {
     /**
      * Selects project context for a request, honoring `X-AiBridge-Project`
      * when provided and falling back to deterministic default selection.
      */
-    fun resolveProject(call: ApplicationCall): Project? {
+    override fun resolveProject(call: ApplicationCall): Project? {
         val requested = call.request.header("X-AiBridge-Project")?.trim().orEmpty()
         if (requested.isNotBlank()) {
             val selected = findProjectBySelector(requested)
@@ -27,7 +35,7 @@ internal class GatewayProjectResolver(
         return selectDefaultProject()
     }
 
-    fun selectDefaultProject(): Project? {
+    override fun selectDefaultProject(): Project? {
         return ProjectManager.getInstance().openProjects
             .sortedWith(compareBy<Project>({ it.basePath ?: "" }, { it.name }))
             .firstOrNull()

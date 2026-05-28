@@ -12,7 +12,7 @@ import com.aibridge.settings.AiBridgeSettings
 internal class GatewayModelCatalog(
     private val bridgeProvider: () -> AiProviderBridge,
     private val settingsProvider: () -> AiBridgeSettings,
-    private val projectResolver: GatewayProjectResolver,
+    private val projectResolver: IGatewayProjectResolver,
     private val log: (String) -> Unit
 ) {
     private var lastLogMessage: String? = null

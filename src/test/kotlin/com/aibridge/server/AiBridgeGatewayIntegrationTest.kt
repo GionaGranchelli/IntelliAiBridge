@@ -17,6 +17,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
@@ -173,15 +174,19 @@ class AiBridgeGatewayIntegrationTest {
     @Test
     fun `concurrency limit returns 503 for second simultaneous completion`() {
         settings.maxConcurrentRequests = 1
+        val firstRequestStarted = CountDownLatch(1)
+        val firstRequestMayFinish = CountDownLatch(1)
+
         gateway.setChatCompletionHandlerForTests { call, request ->
+            firstRequestStarted.countDown()
             if (request.stream) {
                 call.respondTextWriter(contentType = ContentType.Text.EventStream) {
-                    Thread.sleep(700)
+                    firstRequestMayFinish.await(10, TimeUnit.SECONDS)
                     write("data: [DONE]\n\n")
                     flush()
                 }
             } else {
-                Thread.sleep(700)
+                firstRequestMayFinish.await(10, TimeUnit.SECONDS)
                 call.respond(
                     ChatCompletionResponse(
                         id = "chatcmpl-${UUID.randomUUID()}",
@@ -203,13 +208,16 @@ class AiBridgeGatewayIntegrationTest {
         val t1 = thread {
             first = sendChatRequest(stream = false)
         }
-        Thread.sleep(100)
+        // Wait for first request to acquire the slot
+        assertTrue(firstRequestStarted.await(5, TimeUnit.SECONDS), "First request should start within timeout")
         val t2 = thread {
             second = sendChatRequest(stream = false)
         }
 
-        t1.join()
         t2.join()
+        // Now allow first request to finish
+        firstRequestMayFinish.countDown()
+        t1.join()
 
         val statuses = listOf(first.statusCode(), second.statusCode()).sorted()
         assertEquals(listOf(200, 503), statuses)

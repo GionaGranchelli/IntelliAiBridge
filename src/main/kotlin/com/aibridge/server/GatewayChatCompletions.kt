@@ -22,7 +22,7 @@ import java.util.UUID
 internal class GatewayChatCompletions(
     private val bridgeProvider: () -> AiProviderBridge,
     private val settingsProvider: () -> AiBridgeSettings,
-    private val projectResolver: GatewayProjectResolver,
+    private val projectResolver: IGatewayProjectResolver,
     private val buildPrompt: (List<ChatMessage>, String) -> String,
     private val parseXmlToolCalls: (String) -> ParsedXmlTools,
     private val log: (String) -> Unit

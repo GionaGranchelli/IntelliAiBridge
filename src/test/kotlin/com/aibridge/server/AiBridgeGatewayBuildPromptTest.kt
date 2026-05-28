@@ -5,8 +5,8 @@ import org.junit.jupiter.api.Test
 
 class AiBridgeGatewayBuildPromptTest {
     @Test
-    fun `buildPrompt injects default system prompt when request has no system message`() {
-        val result = invokeBuildPrompt(
+    fun `build injects default system prompt when request has no system message`() {
+        val result = GatewayPromptBuilder.build(
             messages = listOf(ChatMessage("user", "Tell me a joke.")),
             defaultSystemPrompt = "Keep answers concise."
         )
@@ -18,8 +18,8 @@ class AiBridgeGatewayBuildPromptTest {
     }
 
     @Test
-    fun `buildPrompt does not inject default system prompt when request already has system message`() {
-        val result = invokeBuildPrompt(
+    fun `build does not inject default system prompt when request already has system message`() {
+        val result = GatewayPromptBuilder.build(
             messages = listOf(
                 ChatMessage("system", "Use markdown."),
                 ChatMessage("user", "Summarize this.")
@@ -34,8 +34,8 @@ class AiBridgeGatewayBuildPromptTest {
     }
 
     @Test
-    fun `buildPrompt keeps user and assistant roles formatting`() {
-        val result = invokeBuildPrompt(
+    fun `build keeps user and assistant roles formatting`() {
+        val result = GatewayPromptBuilder.build(
             messages = listOf(
                 ChatMessage("user", "Question"),
                 ChatMessage("assistant", "Earlier answer")
@@ -49,10 +49,28 @@ class AiBridgeGatewayBuildPromptTest {
         )
     }
 
-    private fun invokeBuildPrompt(messages: List<ChatMessage>, defaultSystemPrompt: String): String {
-        val gateway = AiBridgeGateway()
-        val method = gateway.javaClass.getDeclaredMethod("buildPrompt", List::class.java, String::class.java)
-        method.isAccessible = true
-        return method.invoke(gateway, messages, defaultSystemPrompt) as String
+    @Test
+    fun `build handles tool messages with content and tool_call_id`() {
+        val result = GatewayPromptBuilder.build(
+            messages = listOf(
+                ChatMessage("user", "Read the file"),
+                ChatMessage("tool", "File contents here", tool_call_id = "call_123")
+            ),
+            defaultSystemPrompt = ""
+        )
+
+        assert(result.contains("Tool result:"))
+        assert(result.contains("File contents here"))
+        assert(result.contains("(for tool call: call_123)"))
+    }
+
+    @Test
+    fun `build handles empty default system prompt`() {
+        val result = GatewayPromptBuilder.build(
+            messages = listOf(ChatMessage("user", "Hello")),
+            defaultSystemPrompt = ""
+        )
+
+        assertEquals("Hello", result)
     }
 }

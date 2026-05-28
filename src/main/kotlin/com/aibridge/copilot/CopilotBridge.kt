@@ -182,7 +182,7 @@ class CopilotBridge : AiProviderBridge {
         }
     }
 
-    private fun extractTextFromMessageContent(content: MessageContent): List<String> {
+    internal fun extractTextFromMessageContent(content: MessageContent): List<String> {
         return when (content) {
             is MessageContent.Markdown -> listOf(content.data.text)
             is MessageContent.AgentRound -> buildList {
@@ -236,7 +236,7 @@ class CopilotBridge : AiProviderBridge {
         }
     }
 
-    private fun mapCatalogModels(modelService: CompositeModelService): List<AvailableModel> {
+    internal fun mapCatalogModels(modelService: CompositeModelService): List<AvailableModel> {
         return modelService.models.unscoped.value
             .map { model ->
                 val provider = model.providerName?.takeIf { it.isNotBlank() }
@@ -257,7 +257,7 @@ class CopilotBridge : AiProviderBridge {
         return modeModels.map { model -> AvailableModel(id = model, label = model) }
     }
 
-    private fun selectPreferredMode(chatModeService: ChatModeService?): RpcChatMode? {
+    internal fun selectPreferredMode(chatModeService: ChatModeService?): RpcChatMode? {
         val modes = chatModeService?.chatModes?.value.orEmpty()
         // Default to Agent mode for richer autonomous behavior; fallback to Ask.
         return modes.firstOrNull { it.isAgentKind() || it.id.equals(RpcChatMode.BUILT_IN_AGENT_ID, ignoreCase = true) }
