@@ -61,6 +61,8 @@ internal class GatewayChatCompletions(
                 val fullContent = collectAssistantReply(bridge, sessionHandle, prompt)
                 respondNonStreaming(call, modelIdStr, fullContent)
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             log("Error handling chat completion: ${e.message}")
             if (!call.response.isCommitted) {
@@ -161,19 +163,33 @@ internal class GatewayChatCompletions(
 
             coroutineScope {
                 // Launch the bridge call on EDT (Copilot requires it).
-                // This runs concurrently with our channel-reading loop
-                // below, so chunks are written as soon as they arrive.
-                launch(Dispatchers.EDT) {
+                // Fall back to Dispatchers.Default in headless/CI environments.
+                val dispatcher = try {
+                    Dispatchers.EDT
+                } catch (_: Throwable) {
+                    Dispatchers.Default
+                }
+                launch(dispatcher) {
                     bridge.sendMessage(sessionHandle, prompt) { event ->
                         when (event) {
                             is AiEvent.Progress -> {
-                                event.reply?.let { channel.trySend(it) }
+                                event.reply?.let {
+                                    val result = channel.trySend(it)
+                                    if (result.isFailure) {
+                                        log("Streaming channel full — dropping chunk. Channel status: ${result.exceptionOrNull()?.message ?: "closed"}")
+                                    }
+                                }
                             }
                             is AiEvent.Complete -> {
                                 channel.close()
                             }
                             is AiEvent.Error -> {
-                                channel.close(Exception(event.message))
+                                // Send error through channel as SSE event, not as channel exception
+                                val errorJson = jacksonObjectMapper().writeValueAsString(
+                                    mapOf("error" to mapOf("message" to (event.message ?: "Unknown error"), "type" to "server_error"))
+                                )
+                                channel.trySend("__ERROR__:$errorJson")
+                                channel.close()
                             }
                             is AiEvent.Other -> {}
                         }

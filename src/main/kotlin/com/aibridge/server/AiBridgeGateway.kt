@@ -43,8 +43,8 @@ import java.util.concurrent.atomic.AtomicInteger
 @Service(Service.Level.APP)
 class AiBridgeGateway : AutoCloseable {
     private val LOG = Logger.getInstance(AiBridgeGateway::class.java)
-    private var server: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
-    private val scope = CoroutineScope(Dispatchers.IO)
+    @Volatile private var server: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
+    private val scope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
     private val copilotBridge = CopilotBridge()
     private val jsonMapper = jacksonObjectMapper()
     private val lifecycleLock = Any()
@@ -189,7 +189,7 @@ class AiBridgeGateway : AutoCloseable {
         try {
             val settings = currentSettings()
             val effectiveApiKey = apiKeyOverride ?: settings.effectiveApiKey
-            log("AiBridge Checking API key... (length=${effectiveApiKey.length})")
+            log("AiBridge Checking API key... OK")
             if (effectiveApiKey.isBlank()) {
                 val error = "AiBridge Server not started: API key missing. Set AIBRIDGE_API_KEY or configure AiBridge API Key in settings."
                 log(error)
@@ -240,7 +240,11 @@ class AiBridgeGateway : AutoCloseable {
                     val authHeader = call.request.header(HttpHeaders.Authorization)
                     val expectedAuth = "Bearer $activeApiKey"
                     if (authHeader == null ||
-                        !MessageDigest.isEqual(authHeader.toByteArray(), expectedAuth.toByteArray())) {
+                        !MessageDigest.isEqual(
+                            authHeader.toByteArray(Charsets.UTF_8),
+                            expectedAuth.toByteArray(Charsets.UTF_8)
+                        )
+                    ) {
                         log("[${requestId(call)}] Unauthorized request from ${call.request.local.remoteHost}")
                         call.respond(HttpStatusCode.Unauthorized, OpenAiErrorResponse(OpenAiError("Invalid API Key", "invalid_request_error", code = "invalid_api_key")))
                         finish()
@@ -351,7 +355,7 @@ class AiBridgeGateway : AutoCloseable {
         settings: AiBridgeSettings
     ) {
         try {
-            withTimeout(settings.requestTimeoutSeconds * 1000L) {
+            withTimeout(settings.requestTimeoutSeconds.coerceIn(1, 3600) * 1000L) {
                 val testHandler = chatCompletionHandlerOverride
                 if (testHandler != null) testHandler(call, request) else handleChatCompletion(call, request)
             }
@@ -360,6 +364,8 @@ class AiBridgeGateway : AutoCloseable {
             if (!call.response.isCommitted) {
                 call.respond(HttpStatusCode.GatewayTimeout, OpenAiErrorResponse(OpenAiError("Request timeout", "server_error", code = "request_timeout")))
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             log("[${requestId(call)}] Error handling request: ${e.message}")
             if (!call.response.isCommitted) {
@@ -372,7 +378,10 @@ class AiBridgeGateway : AutoCloseable {
         val prompt = when (val value = prompt) {
             is String -> value
             is List<*> -> value.filterIsInstance<String>().joinToString("\n")
-            else -> ""
+            else -> {
+                log("Unexpected prompt type: ${value?.let { it::class.simpleName } ?: "null"}, value preview: ${value.toString().take(100)}")
+                ""
+            }
         }
 
         return ChatCompletionRequest(
@@ -386,9 +395,10 @@ class AiBridgeGateway : AutoCloseable {
 
     private fun checkRateLimit(limit: Int): Boolean {
         synchronized(rateLimitLock) {
-            val now = System.currentTimeMillis()
-            val windowMs = 60_000L
-            while (rateBucket.peek() != null && now - rateBucket.peek()!! > windowMs) {
+                val now = System.currentTimeMillis()
+                val windowMs = 60_000L
+                val peeked = rateBucket.peek()
+                while (peeked != null && now - peeked > windowMs) {
                 rateBucket.poll()
             }
             if (rateBucket.size >= limit) return false
@@ -451,8 +461,8 @@ class AiBridgeGateway : AutoCloseable {
         return try {
             jsonMapper.readValue<T>(body)
         } catch (e: Exception) {
-            val preview = body.replace("\n", " ").take(500)
-            log("[$requestId] Invalid JSON body for $endpoint: ${e.message}. bodyPreview=$preview")
+            val preview = body.replace("\n", " ").take(200)
+            log("[$requestId] Invalid JSON body for $endpoint: ${e.message}. bodyPreview=${preview}...")
             if (!call.response.isCommitted) {
                 call.respond(HttpStatusCode.BadRequest, OpenAiErrorResponse(OpenAiError("Invalid JSON request body", "invalid_request_error")))
             }

@@ -24,6 +24,15 @@ internal object GatewayPromptBuilder {
                 "assistant" -> msg.content?.takeIf { it.isNotBlank() }?.let {
                     promptBuilder.append("Previous assistant response:\n").append(it).append("\n")
                 }
+                "tool" -> {
+                    // Inject tool call results so Copilot sees function outputs
+                    msg.content?.takeIf { it.isNotBlank() }?.let {
+                        promptBuilder.append("Tool result:\n").append(it).append("\n")
+                    }
+                    msg.tool_call_id?.takeIf { it.isNotBlank() }?.let {
+                        promptBuilder.append("(for tool call: $it)\n")
+                    }
+                }
             }
         }
 

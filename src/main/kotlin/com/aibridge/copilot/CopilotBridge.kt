@@ -86,8 +86,8 @@ class CopilotBridge : AiProviderBridge {
             val modelService = ApplicationManager.getApplication().getService(CompositeModelService::class.java)
             val requested = modelService?.let { findModel(it, modelName, providerName) }
             if (requested != null) {
-                val scope = if (selectedMode?.isAgentKind() == true) ModelScope.AgentPanel else ModelScope.ChatPanel
-                project.getService(UserSelectedModelService::class.java)?.setSelectedModel(scope, requested)
+                // Only set model on the DataContext for this session — do NOT
+                // mutate the user's global Copilot model selection.
                 requested.toModelId()
             } else null
         } else null
@@ -135,8 +135,7 @@ class CopilotBridge : AiProviderBridge {
         }
 
         val chunks = mutableListOf<String>()
-        @Suppress("UNCHECKED_CAST")
-        val contents = responseMessage.contents as Iterable<MessageContent>
+        val contents = responseMessage.contents.filterIsInstance<MessageContent>()
         for (content in contents) {
             chunks.addAll(extractTextFromMessageContent(content))
         }
@@ -158,7 +157,7 @@ class CopilotBridge : AiProviderBridge {
             ?: return "No RESPONSE message found"
 
         @Suppress("UNCHECKED_CAST")
-        val contents = responseMessage.contents as Iterable<MessageContent>
+        val contents = responseMessage.contents.filterIsInstance<MessageContent>()
         val contentTypes = contents.map { it::class.simpleName ?: it.javaClass.simpleName }
         val preview = extractVisibleAssistantText(handle)?.take(120)
         return "response.stringContent.length=${responseMessage.stringContent?.length ?: 0}, contentTypes=$contentTypes, extractedPreview=${preview ?: "<none>"}"
@@ -223,7 +222,8 @@ class CopilotBridge : AiProviderBridge {
                 }
             }
             models
-        } catch (_: Exception) {
+        } catch (e: RuntimeException) {
+            // Keep best-effort — Copilot model catalog may not be ready
             emptyList()
         }
     }
@@ -264,7 +264,7 @@ class CopilotBridge : AiProviderBridge {
                 method.name == "setSelectedChatMode" && method.parameterCount == 1
             } ?: return
             setter.invoke(service, selectedMode)
-        } catch (_: Throwable) {
+        } catch (e: RuntimeException) {
             // Older/newer Copilot builds may not expose this service or setter.
         }
     }
@@ -272,7 +272,7 @@ class CopilotBridge : AiProviderBridge {
     private fun refreshModels(modelService: CompositeModelService) {
         try {
             modelService.refreshModels()
-        } catch (_: Throwable) {
+        } catch (e: RuntimeException) {
             // Keep best-effort behavior if refresh APIs change across Copilot builds.
         }
     }

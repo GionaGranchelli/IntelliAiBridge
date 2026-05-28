@@ -31,7 +31,7 @@ class AiBridgeSettingsConfigurable : SearchableConfigurable {
     }
 
     private val settings = AiBridgeSettings.instance
-    private val copilotBridge = CopilotBridge()
+    private val copilotBridge = com.aibridge.copilot.CopilotBridge()
     private val envKeyActive = settings.isEnvApiKeyConfigured
     private var hostText = settings.host
     private var portValue = settings.port

@@ -30,9 +30,16 @@ import javax.swing.Timer
  * Tool window UI showing gateway status, controls, and runtime logs.
  */
 class AiBridgeToolWindowFactory : ToolWindowFactory, DumbAware {
+    companion object {
+        private val projectListeners = java.util.concurrent.ConcurrentHashMap<Project, AiBridgeGateway.LogListener>()
+    }
+
     /** Creates and wires tool window content for one project instance. */
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val gateway = ApplicationManager.getApplication().getService(AiBridgeGateway::class.java)
+        
+        // Remove any stale listener from a previous open of the same tool window
+        projectListeners.remove(project)?.let { gateway.removeLogListener(it) }
         
         // Stats Panel
         val totalRequestsLabel = JBLabel("Total Requests: 0")
@@ -114,6 +121,7 @@ class AiBridgeToolWindowFactory : ToolWindowFactory, DumbAware {
             }
         }
         gateway.addLogListener(logListener)
+        projectListeners[project] = logListener
 
         // Main Layout
         val topPanel = JPanel(BorderLayout()).apply {
@@ -163,6 +171,7 @@ class AiBridgeToolWindowFactory : ToolWindowFactory, DumbAware {
         content.setDisposer(Disposable {
             statsTimer.stop()
             gateway.removeLogListener(logListener)
+            projectListeners.remove(project)
         })
     }
 }

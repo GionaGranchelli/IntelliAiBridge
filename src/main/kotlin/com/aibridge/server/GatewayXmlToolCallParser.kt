@@ -25,8 +25,11 @@ internal class GatewayXmlToolCallParser(
         val matches = mutableListOf<Pair<Int, Int>>()
 
         for ((start, end, block) in findFunctionCallBlocks(text)) {
-            toolCalls.addAll(parseFunctionCallBlock(block))
-            matches.add(Pair(start, end))
+            val parsed = parseFunctionCallBlock(block)
+            if (parsed.isNotEmpty()) {
+                toolCalls.addAll(parsed)
+                matches.add(Pair(start, end))
+            }
         }
 
         matches.reversed().forEach { (start, end) ->
