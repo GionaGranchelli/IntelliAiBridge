@@ -96,10 +96,20 @@ class AiBridgeToolWindowFactory : ToolWindowFactory, DumbAware {
         val logScrollPane = JBScrollPane(logArea)
         
         val logListener = object : AiBridgeGateway.LogListener {
+            private val maxLogLines = 5000
+
             override fun onLog(message: String) {
                 ApplicationManager.getApplication().invokeLater {
                     logArea.append(message + "\n")
-                    logArea.caretPosition = logArea.document.length
+                    // Trim old lines when exceeding the cap
+                    val doc = logArea.document
+                    var lineCount = doc.defaultRootElement.elementCount
+                    while (lineCount > maxLogLines + 100) { // buffer so we don't trim on every line
+                        val firstLineEnd = doc.defaultRootElement.getElement(0).endOffset
+                        doc.remove(0, firstLineEnd + 1)
+                        lineCount = doc.defaultRootElement.elementCount
+                    }
+                    logArea.caretPosition = doc.length
                 }
             }
         }

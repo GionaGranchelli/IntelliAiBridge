@@ -166,6 +166,8 @@ class AiBridgeSettingsConfigurable : SearchableConfigurable {
      * gateway reflects updated runtime configuration.
      */
     override fun apply() {
+        // Only restart if host/port changed — other settings are read live
+        val needsRestart = settings.host != hostText || settings.port != portValue
         settings.host = hostText
         settings.port = portValue
         val typedApiKey = apiKeyInput?.password?.concatToString().orEmpty()
@@ -182,11 +184,13 @@ class AiBridgeSettingsConfigurable : SearchableConfigurable {
         settings.requestTimeoutSeconds = requestTimeoutSecondsValue
         settings.enableLogging = enableLoggingValue
 
-        val gateway = com.intellij.openapi.application.ApplicationManager.getApplication()
-            .getService(AiBridgeGateway::class.java)
-        gateway.stop()
-        if (settings.autoStart) {
-            gateway.start()
+        if (needsRestart) {
+            val gateway = com.intellij.openapi.application.ApplicationManager.getApplication()
+                .getService(AiBridgeGateway::class.java)
+            gateway.stop()
+            if (settings.autoStart) {
+                gateway.start()
+            }
         }
 
         apiKeyDirty = false

@@ -27,8 +27,10 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -59,6 +61,7 @@ class AiBridgeGateway : AutoCloseable {
     private val rateLimitLock = Any()
     private val requestSlotKey = AttributeKey<Boolean>("aibridge.requestSlotAcquired")
     private val requestIdKey = AttributeKey<String>("aibridge.requestId")
+    private val maxBodySize = 5 * 1024 * 1024 // 5 MB
 
     private val stats = object {
         val totalRequests = AtomicInteger(0)
@@ -107,7 +110,7 @@ class AiBridgeGateway : AutoCloseable {
         fun onLog(message: String)
     }
 
-    private val logListeners = mutableListOf<LogListener>()
+    private val logListeners = CopyOnWriteArrayList<LogListener>()
     /** Registers a [LogListener]. */
     fun addLogListener(listener: LogListener) = logListeners.add(listener)
 
@@ -235,7 +238,9 @@ class AiBridgeGateway : AutoCloseable {
                     if (call.request.uri == "/health" || call.request.httpMethod == HttpMethod.Options) return@intercept
 
                     val authHeader = call.request.header(HttpHeaders.Authorization)
-                    if (authHeader != "Bearer $activeApiKey") {
+                    val expectedAuth = "Bearer $activeApiKey"
+                    if (authHeader == null ||
+                        !MessageDigest.isEqual(authHeader.toByteArray(), expectedAuth.toByteArray())) {
                         log("[${requestId(call)}] Unauthorized request from ${call.request.local.remoteHost}")
                         call.respond(HttpStatusCode.Unauthorized, OpenAiErrorResponse(OpenAiError("Invalid API Key", "invalid_request_error", code = "invalid_api_key")))
                         finish()
@@ -245,6 +250,19 @@ class AiBridgeGateway : AutoCloseable {
                     if (!checkRateLimit(settings.rateLimitPerMinute)) {
                         log("[${requestId(call)}] Rate limit exceeded")
                         call.respond(HttpStatusCode.TooManyRequests, OpenAiErrorResponse(OpenAiError("Rate limit exceeded", "rate_limit_error")))
+                        finish()
+                        return@intercept
+                    }
+
+                    // Reject oversized bodies before reading to prevent OOM
+                    val bodySize = call.request.header(HttpHeaders.ContentLength)?.toLongOrNull() ?: 0
+                    if (bodySize > maxBodySize) {
+                        log("[${requestId(call)}] Request body too large: $bodySize bytes (max: $maxBodySize)")
+                        call.respond(HttpStatusCode.PayloadTooLarge, OpenAiErrorResponse(OpenAiError(
+                            "Request body exceeds ${maxBodySize / (1024 * 1024)} MB limit",
+                            "invalid_request_error",
+                            code = "request_too_large"
+                        )))
                         finish()
                         return@intercept
                     }
