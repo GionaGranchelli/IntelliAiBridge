@@ -49,7 +49,7 @@ class CopilotBridge : AiProviderBridge {
     }
 
     /** Lists user-available models, preferring model catalog over chat-mode fallback. */
-    override fun listAvailableModels(project: Project): List<AvailableModel> {
+    override suspend fun listAvailableModels(project: Project): List<AvailableModel> {
         val fromCatalog = listFromCompositeModelCatalog()
         if (fromCatalog.isNotEmpty()) {
             return fromCatalog
@@ -218,21 +218,20 @@ class CopilotBridge : AiProviderBridge {
         }
     }
 
-    private fun listFromCompositeModelCatalog(): List<AvailableModel> {
+    private suspend fun listFromCompositeModelCatalog(): List<AvailableModel> {
         return try {
             val modelService = ApplicationManager.getApplication().getService(CompositeModelService::class.java) ?: return emptyList()
             refreshModels(modelService)
             var models = mapCatalogModels(modelService)
             if (models.isEmpty()) {
                 repeat(6) {
-                    Thread.sleep(100)
+                    kotlinx.coroutines.delay(100)
                     models = mapCatalogModels(modelService)
                     if (models.isNotEmpty()) return@repeat
                 }
             }
             models
         } catch (e: RuntimeException) {
-            // Keep best-effort — Copilot model catalog may not be ready
             emptyList()
         }
     }

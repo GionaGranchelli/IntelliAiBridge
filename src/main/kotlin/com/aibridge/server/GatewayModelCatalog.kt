@@ -17,7 +17,7 @@ internal class GatewayModelCatalog(
 ) {
     private var lastLogMessage: String? = null
 
-    fun listModels(testProvider: (() -> List<ModelInfo>)?): List<ModelInfo> {
+    suspend fun listModels(testProvider: (() -> List<ModelInfo>)?): List<ModelInfo> {
         if (testProvider != null) return testProvider()
 
         val settings = settingsProvider()

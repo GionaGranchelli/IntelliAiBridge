@@ -246,7 +246,7 @@ class AiBridgeSettingsConfigurable : SearchableConfigurable {
                 .sortedWith(compareBy<Project>({ it.basePath ?: "" }, { it.name }))
                 .firstOrNull()
 
-            val discovered = project?.let { activeBridge().listAvailableModels(it) }.orEmpty()
+            val discovered = project?.let { kotlinx.coroutines.runBlocking { activeBridge().listAvailableModels(it) } }.orEmpty()
             val options = mutableListOf(ModelOption("", "COPILOT default"))
             discovered.forEach { model ->
                 options.add(ModelOption(model.id, model.label))

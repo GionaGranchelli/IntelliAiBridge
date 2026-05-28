@@ -441,7 +441,20 @@ class AiBridgeGateway : AutoCloseable {
     private suspend inline fun <reified T> receiveJsonBody(call: ApplicationCall, endpoint: String): T? {
         val requestId = requestId(call)
         val body = try {
-            call.receiveText()
+            val text = call.receiveText()
+            // Safety check: reject oversized bodies (catches chunked/streaming bypass of Content-Length check)
+            if (text.length > maxBodySize) {
+                log("[$requestId] Request body too large: ${text.length} chars (max: $maxBodySize)")
+                if (!call.response.isCommitted) {
+                    call.respond(HttpStatusCode.PayloadTooLarge, OpenAiErrorResponse(OpenAiError(
+                        "Request body exceeds ${maxBodySize / (1024 * 1024)} MB limit",
+                        "invalid_request_error",
+                        code = "request_too_large"
+                    )))
+                }
+                return null
+            }
+            text
         } catch (e: Exception) {
             log("[$requestId] Failed to read request body for $endpoint: ${e.message}")
             if (!call.response.isCommitted) {
@@ -496,7 +509,7 @@ class AiBridgeGateway : AutoCloseable {
     }
 
     /** Returns the list of available models. */
-    fun listModels(): List<ModelInfo> {
+    suspend fun listModels(): List<ModelInfo> {
         return modelCatalog.listModels(modelListProviderOverride)
     }
 

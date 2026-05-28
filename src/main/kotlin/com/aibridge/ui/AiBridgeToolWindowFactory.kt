@@ -195,7 +195,7 @@ class AiBridgeToolWindowFactory : ToolWindowFactory, DumbAware {
 
             // Model listing blocks and must NOT run on EDT
             ApplicationManager.getApplication().executeOnPooledThread {
-                val currentModels = gateway.listModels()
+                val currentModels = kotlinx.coroutines.runBlocking { gateway.listModels() }
                 ApplicationManager.getApplication().invokeLater {
                     if (currentModels != lastModels) {
                         lastModels = currentModels

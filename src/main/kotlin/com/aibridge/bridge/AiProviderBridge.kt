@@ -7,7 +7,7 @@ import com.intellij.openapi.project.Project
  */
 interface AiProviderBridge {
     /** Lists user-available models. */
-    fun listAvailableModels(project: Project): List<AvailableModel>
+    suspend fun listAvailableModels(project: Project): List<AvailableModel>
 
     /** Creates and configures a session for one request. */
     suspend fun prepareSession(project: Project, requestedModel: String?, defaultModel: String): AiSessionHandle
