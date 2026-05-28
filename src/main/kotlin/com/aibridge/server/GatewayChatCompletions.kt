@@ -31,7 +31,7 @@ internal class GatewayChatCompletions(
         val settings = settingsProvider()
         val project = projectResolver.resolveProject(call)
         if (project == null) {
-            call.respond(HttpStatusCode.ServiceUnavailable, mapOf("error" to "No open project found"))
+            call.respond(HttpStatusCode.ServiceUnavailable, OpenAiErrorResponse(OpenAiError("No open project found", "server_error")))
             return
         }
 
@@ -59,14 +59,14 @@ internal class GatewayChatCompletions(
                 respondStreaming(call, request, modelIdStr, bridge, sessionHandle, prompt)
             } else {
                 val fullContent = collectAssistantReply(bridge, sessionHandle, prompt)
-                respondNonStreaming(call, modelIdStr, fullContent)
+                respondNonStreaming(call, modelIdStr, fullContent, prompt)
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             log("Error handling chat completion: ${e.message}")
             if (!call.response.isCommitted) {
-                call.respond(HttpStatusCode.ServiceUnavailable, mapOf("error" to (e.message ?: "Provider unavailable")))
+                call.respond(HttpStatusCode.ServiceUnavailable, OpenAiErrorResponse(OpenAiError(e.message ?: "Provider unavailable", "server_error")))
             }
         } finally {
             if (sessionHandle != null) {
@@ -186,7 +186,7 @@ internal class GatewayChatCompletions(
                             is AiEvent.Error -> {
                                 // Send error through channel as SSE event, not as channel exception
                                 val errorJson = jacksonObjectMapper().writeValueAsString(
-                                    mapOf("error" to mapOf("message" to (event.message ?: "Unknown error"), "type" to "server_error"))
+                                    OpenAiErrorResponse(OpenAiError(event.message ?: "Unknown error", "server_error"))
                                 )
                                 channel.trySend("__ERROR__:$errorJson")
                                 channel.close()
@@ -237,6 +237,9 @@ internal class GatewayChatCompletions(
                 // Final chunk with finish_reason and the [DONE] marker
                 val finishReason = if (parsed.toolCalls.isNotEmpty()) "tool_calls" else "stop"
                 writeChunk(null, finishReason)
+                // Emit usage estimate so clients can track token consumption
+                val usage = estimateUsage(prompt, accumulated)
+                writer.write("data: ${mapper.writeValueAsString(mapOf("usage" to usage))}\n\n")
                 writer.write("data: [DONE]\n\n")
                 writer.flush()
             }
@@ -246,7 +249,8 @@ internal class GatewayChatCompletions(
     private suspend fun respondNonStreaming(
         call: ApplicationCall,
         modelIdStr: String,
-        fullContent: String
+        fullContent: String,
+        prompt: String
     ) {
         val parsed = parseXmlToolCalls(fullContent)
         val responseMessage = if (parsed.toolCalls.isNotEmpty()) {
@@ -254,6 +258,7 @@ internal class GatewayChatCompletions(
         } else {
             ChatMessage("assistant", fullContent)
         }
+        val usage = estimateUsage(prompt, fullContent)
 
         call.respond(
             ChatCompletionResponse(
@@ -266,8 +271,19 @@ internal class GatewayChatCompletions(
                         responseMessage,
                         finish_reason = if (parsed.toolCalls.isNotEmpty()) "tool_calls" else "stop"
                     )
-                )
+                ),
+                usage = usage
             )
+        )
+    }
+
+    private fun estimateUsage(prompt: String, completion: String): Usage {
+        val promptTokens = (prompt.length / 4).coerceAtLeast(1)
+        val completionTokens = (completion.length / 4).coerceAtLeast(0)
+        return Usage(
+            prompt_tokens = promptTokens,
+            completion_tokens = completionTokens,
+            total_tokens = promptTokens + completionTokens
         )
     }
 }

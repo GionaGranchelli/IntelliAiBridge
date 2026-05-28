@@ -16,9 +16,17 @@ internal class GatewayModelCatalog(
     private val log: (String) -> Unit
 ) {
     private var lastLogMessage: String? = null
+    @Volatile private var modelCache: Pair<Long, List<ModelInfo>>? = null
+    private val modelCacheTtlMs = 30_000L // 30 seconds
 
     suspend fun listModels(testProvider: (() -> List<ModelInfo>)?): List<ModelInfo> {
         if (testProvider != null) return testProvider()
+
+        // Return cached result if still fresh
+        val cached = modelCache
+        if (cached != null && System.currentTimeMillis() - cached.first < modelCacheTtlMs) {
+            return cached.second
+        }
 
         val settings = settingsProvider()
         val bridge = bridgeProvider()
@@ -48,7 +56,9 @@ internal class GatewayModelCatalog(
                 label = model.label
             )
         }
-        return if (discovered.isNotEmpty()) discovered else fallback
+        val result = if (discovered.isNotEmpty()) discovered else fallback
+        modelCache = Pair(System.currentTimeMillis(), result)
+        return result
     }
 
     private fun buildFallbackModels(): List<ModelInfo> {

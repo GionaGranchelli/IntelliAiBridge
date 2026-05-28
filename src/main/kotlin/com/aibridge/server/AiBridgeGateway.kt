@@ -58,6 +58,7 @@ class AiBridgeGateway : AutoCloseable {
 
     private val activeRequests = AtomicInteger(0)
     private val rateBucket = ConcurrentLinkedQueue<Long>()
+    private val rateBucketCount = AtomicInteger(0)
     private val rateLimitLock = Any()
     private val requestSlotKey = AttributeKey<Boolean>("aibridge.requestSlotAcquired")
     private val requestIdKey = AttributeKey<String>("aibridge.requestId")
@@ -120,9 +121,9 @@ class AiBridgeGateway : AutoCloseable {
     private fun log(message: String) {
         val ts = java.time.LocalDateTime.now().toString()
         val formatted = "[$ts] $message"
-        println(formatted) // Always print to stdout for visibility in runIde
+        LOG.info(formatted)
         if (currentSettings().enableLogging) {
-            LOG.info(formatted)
+            LOG.info(formatted) // Already logged above; keep for backward compat
         }
         logListeners.forEach { it.onLog(formatted) }
     }
@@ -207,120 +208,7 @@ class AiBridgeGateway : AutoCloseable {
             }
 
             val createdServer = embeddedServer(Netty, port = settings.port, host = settings.host) {
-                install(ContentNegotiation) {
-                    jackson()
-                }
-                install(CORS) {
-                    val allowed = settings.corsAllowedOrigins.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                    allowed.forEach { origin ->
-                        val host = origin.removePrefix("http://").removePrefix("https://")
-                        if (!host.contains(":")) {
-                            allowHost(host, listOf("http", "https"))
-                        } else {
-                            allowHost(host.split(":")[0], listOf("http", "https"))
-                        }
-                    }
-                    allowHeader(HttpHeaders.Authorization)
-                    allowHeader(HttpHeaders.ContentType)
-                    allowMethod(HttpMethod.Options)
-                    allowMethod(HttpMethod.Get)
-                    allowMethod(HttpMethod.Post)
-                }
-
-                intercept(ApplicationCallPipeline.Plugins) {
-                    val requestId = UUID.randomUUID().toString().take(8)
-                    call.attributes.put(requestIdKey, requestId)
-                    val contentType = call.request.header(HttpHeaders.ContentType) ?: "<none>"
-                    val contentLength = call.request.header(HttpHeaders.ContentLength) ?: "<none>"
-                    val userAgent = call.request.header(HttpHeaders.UserAgent) ?: "<none>"
-                    log("[$requestId] Incoming request: ${call.request.httpMethod.value} ${call.request.uri} from ${call.request.local.remoteHost} ct=$contentType len=$contentLength ua=$userAgent")
-
-                    if (call.request.uri == "/health" || call.request.httpMethod == HttpMethod.Options) return@intercept
-
-                    val authHeader = call.request.header(HttpHeaders.Authorization)
-                    val expectedAuth = "Bearer $activeApiKey"
-                    if (authHeader == null ||
-                        !MessageDigest.isEqual(
-                            authHeader.toByteArray(Charsets.UTF_8),
-                            expectedAuth.toByteArray(Charsets.UTF_8)
-                        )
-                    ) {
-                        log("[${requestId(call)}] Unauthorized request from ${call.request.local.remoteHost}")
-                        call.respond(HttpStatusCode.Unauthorized, OpenAiErrorResponse(OpenAiError("Invalid API Key", "invalid_request_error", code = "invalid_api_key")))
-                        finish()
-                        return@intercept
-                    }
-
-                    if (!checkRateLimit(settings.rateLimitPerMinute)) {
-                        log("[${requestId(call)}] Rate limit exceeded")
-                        call.respond(HttpStatusCode.TooManyRequests, OpenAiErrorResponse(OpenAiError("Rate limit exceeded", "rate_limit_error")))
-                        finish()
-                        return@intercept
-                    }
-
-                    // Reject oversized bodies before reading to prevent OOM
-                    val bodySize = call.request.header(HttpHeaders.ContentLength)?.toLongOrNull() ?: 0
-                    if (bodySize > maxBodySize) {
-                        log("[${requestId(call)}] Request body too large: $bodySize bytes (max: $maxBodySize)")
-                        call.respond(HttpStatusCode.PayloadTooLarge, OpenAiErrorResponse(OpenAiError(
-                            "Request body exceeds ${maxBodySize / (1024 * 1024)} MB limit",
-                            "invalid_request_error",
-                            code = "request_too_large"
-                        )))
-                        finish()
-                        return@intercept
-                    }
-
-                    if (isCompletionEndpoint(call)) {
-                        if (!tryAcquireRequestSlot(settings.maxConcurrentRequests)) {
-                            log("[${requestId(call)}] Server at capacity")
-                            call.respond(HttpStatusCode.ServiceUnavailable, OpenAiErrorResponse(OpenAiError("Server at capacity", "server_error")))
-                            finish()
-                            return@intercept
-                        }
-                        call.attributes.put(requestSlotKey, true)
-                    }
-                }
-
-                routing {
-                    get("/health") {
-                        call.respond(mapOf("status" to "ok", "platform" to "ide", "copilot" to "enabled"))
-                    }
-                    get("/v1/models") {
-                        log("[${requestId(call)}] GET /v1/models")
-                        call.respond(mapOf("object" to "list", "data" to listModels()))
-                    }
-                    get("/v1/models/{id}") {
-                        val id = call.parameters["id"]
-                        log("[${requestId(call)}] GET /v1/models/$id")
-                        val model = listModels().find { it.id == id }
-                        if (model != null) {
-                            call.respond(model)
-                        } else {
-                            call.respond(HttpStatusCode.NotFound, OpenAiErrorResponse(OpenAiError("Model not found", "invalid_request_error", code = "model_not_found")))
-                        }
-                    }
-                    post("/v1/chat/completions") {
-                        try {
-                            val request = receiveJsonBody<ChatCompletionRequest>(call, "/v1/chat/completions") ?: return@post
-                            stats.totalRequests.incrementAndGet()
-                            log("[${requestId(call)}] POST /v1/chat/completions - model: ${request.model ?: "default"}")
-                            executeChatCompletion(call, request, settings)
-                        } finally {
-                            releaseRequestSlot(call)
-                        }
-                    }
-                    post("/v1/completions") {
-                        try {
-                            val request = receiveJsonBody<CompletionsRequest>(call, "/v1/completions") ?: return@post
-                            stats.totalRequests.incrementAndGet()
-                            log("[${requestId(call)}] POST /v1/completions (legacy) - model: ${request.model ?: "default"}")
-                            executeChatCompletion(call, request.toChatCompletionRequest(), settings)
-                        } finally {
-                            releaseRequestSlot(call)
-                        }
-                    }
-                }
+                configureGatewayModule(settings)
             }
 
             activeApiKey = effectiveApiKey
@@ -395,14 +283,16 @@ class AiBridgeGateway : AutoCloseable {
 
     private fun checkRateLimit(limit: Int): Boolean {
         synchronized(rateLimitLock) {
-                val now = System.currentTimeMillis()
-                val windowMs = 60_000L
-                val peeked = rateBucket.peek()
-                while (peeked != null && now - peeked > windowMs) {
+            val now = System.currentTimeMillis()
+            val windowMs = 60_000L
+            val peeked = rateBucket.peek()
+            while (peeked != null && now - peeked > windowMs) {
                 rateBucket.poll()
+                rateBucketCount.decrementAndGet()
             }
-            if (rateBucket.size >= limit) return false
+            if (rateBucketCount.get() >= limit) return false
             rateBucket.add(now)
+            rateBucketCount.incrementAndGet()
             return true
         }
     }
@@ -511,6 +401,127 @@ class AiBridgeGateway : AutoCloseable {
     /** Returns the list of available models. */
     suspend fun listModels(): List<ModelInfo> {
         return modelCatalog.listModels(modelListProviderOverride)
+    }
+
+    /**
+     * Configures the Ktor [Application] module: plugins, auth interceptor,
+     * rate limiting, body-size checks, and route registration.
+     */
+    private fun Application.configureGatewayModule(settings: AiBridgeSettings) {
+        install(ContentNegotiation) {
+            jackson()
+        }
+        install(CORS) {
+            val allowed = settings.corsAllowedOrigins.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            allowed.forEach { origin ->
+                val host = origin.removePrefix("http://").removePrefix("https://")
+                if (!host.contains(":")) {
+                    allowHost(host, listOf("http", "https"))
+                } else {
+                    allowHost(host.split(":")[0], listOf("http", "https"))
+                }
+            }
+            allowHeader(HttpHeaders.Authorization)
+            allowHeader(HttpHeaders.ContentType)
+            allowMethod(HttpMethod.Options)
+            allowMethod(HttpMethod.Get)
+            allowMethod(HttpMethod.Post)
+        }
+
+        intercept(ApplicationCallPipeline.Plugins) {
+            val requestId = UUID.randomUUID().toString().take(8)
+            call.attributes.put(requestIdKey, requestId)
+            val contentType = call.request.header(HttpHeaders.ContentType) ?: "<none>"
+            val contentLength = call.request.header(HttpHeaders.ContentLength) ?: "<none>"
+            val userAgent = call.request.header(HttpHeaders.UserAgent) ?: "<none>"
+            log("[$requestId] Incoming request: ${call.request.httpMethod.value} ${call.request.uri} from ${call.request.local.remoteHost} ct=$contentType len=$contentLength ua=$userAgent")
+
+            if (call.request.uri == "/health" || call.request.httpMethod == HttpMethod.Options) return@intercept
+
+            val authHeader = call.request.header(HttpHeaders.Authorization)
+            val expectedAuth = "Bearer $activeApiKey"
+            if (authHeader == null ||
+                !MessageDigest.isEqual(
+                    authHeader.toByteArray(Charsets.UTF_8),
+                    expectedAuth.toByteArray(Charsets.UTF_8)
+                )
+            ) {
+                log("[${requestId(call)}] Unauthorized request from ${call.request.local.remoteHost}")
+                call.respond(HttpStatusCode.Unauthorized, OpenAiErrorResponse(OpenAiError("Invalid API Key", "invalid_request_error", code = "invalid_api_key")))
+                finish()
+                return@intercept
+            }
+
+            if (!checkRateLimit(settings.rateLimitPerMinute)) {
+                log("[${requestId(call)}] Rate limit exceeded")
+                call.respond(HttpStatusCode.TooManyRequests, OpenAiErrorResponse(OpenAiError("Rate limit exceeded", "rate_limit_error")))
+                finish()
+                return@intercept
+            }
+
+            // Reject oversized bodies before reading to prevent OOM
+            val bodySize = call.request.header(HttpHeaders.ContentLength)?.toLongOrNull() ?: 0
+            if (bodySize > maxBodySize) {
+                log("[${requestId(call)}] Request body too large: $bodySize bytes (max: $maxBodySize)")
+                call.respond(HttpStatusCode.PayloadTooLarge, OpenAiErrorResponse(OpenAiError(
+                    "Request body exceeds ${maxBodySize / (1024 * 1024)} MB limit",
+                    "invalid_request_error",
+                    code = "request_too_large"
+                )))
+                finish()
+                return@intercept
+            }
+
+            if (isCompletionEndpoint(call)) {
+                if (!tryAcquireRequestSlot(settings.maxConcurrentRequests)) {
+                    log("[${requestId(call)}] Server at capacity")
+                    call.respond(HttpStatusCode.ServiceUnavailable, OpenAiErrorResponse(OpenAiError("Server at capacity", "server_error")))
+                    finish()
+                    return@intercept
+                }
+                call.attributes.put(requestSlotKey, true)
+            }
+        }
+
+        routing {
+            get("/health") {
+                call.respond(mapOf("status" to "ok", "platform" to "ide", "copilot" to "enabled"))
+            }
+            get("/v1/models") {
+                log("[${requestId(call)}] GET /v1/models")
+                call.respond(mapOf("object" to "list", "data" to listModels()))
+            }
+            get("/v1/models/{id}") {
+                val id = call.parameters["id"]
+                log("[${requestId(call)}] GET /v1/models/$id")
+                val model = listModels().find { it.id == id }
+                if (model != null) {
+                    call.respond(model)
+                } else {
+                    call.respond(HttpStatusCode.NotFound, OpenAiErrorResponse(OpenAiError("Model not found", "invalid_request_error", code = "model_not_found")))
+                }
+            }
+            post("/v1/chat/completions") {
+                try {
+                    val request = receiveJsonBody<ChatCompletionRequest>(call, "/v1/chat/completions") ?: return@post
+                    stats.totalRequests.incrementAndGet()
+                    log("[${requestId(call)}] POST /v1/chat/completions - model: ${request.model ?: "default"}")
+                    executeChatCompletion(call, request, settings)
+                } finally {
+                    releaseRequestSlot(call)
+                }
+            }
+            post("/v1/completions") {
+                try {
+                    val request = receiveJsonBody<CompletionsRequest>(call, "/v1/completions") ?: return@post
+                    stats.totalRequests.incrementAndGet()
+                    log("[${requestId(call)}] POST /v1/completions (legacy) - model: ${request.model ?: "default"}")
+                    executeChatCompletion(call, request.toChatCompletionRequest(), settings)
+                } finally {
+                    releaseRequestSlot(call)
+                }
+            }
+        }
     }
 
     /** Releases server and coroutine resources when the service is disposed. */
